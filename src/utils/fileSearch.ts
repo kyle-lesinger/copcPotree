@@ -181,35 +181,24 @@ function searchInFileList(
   startDate: Date,
   endDate: Date
 ): string[] {
-  console.log(`[FileSearch] 📋 Searching through ${fileList.length} available Potree directories`)
+  console.log(`[FileSearch] 📋 Searching through ${fileList.length} available COPC files`)
   console.log(`[FileSearch] 📁 File source: Configured file list (see getAvailableFileList() in fileSearch.ts)`)
   console.log(`[FileSearch] 💡 To search different files, update getAvailableFileList() in src/utils/fileSearch.ts`)
 
   const results: string[] = []
 
   for (const filepath of fileList) {
-    // For flat structure, we need to check the metadata.json to get the actual filename
-    // For now, we'll use a simple approach: check if this is a direct path to potree_data_test
-    if (filepath.endsWith('potree_data_test') || filepath === '/potree_data_test') {
-      // Flat structure - check metadata to determine if it matches
-      // For now, accept all flat structure directories since we'll validate via metadata
-      console.log(`[FileSearch] ✓ Found flat structure Potree directory: ${filepath}`)
-      console.log(`[FileSearch] ℹ️  Flat structure detected - will validate via metadata.json`)
-      results.push(filepath)
+    // Extract filename from path
+    const filename = filepath.split('/').pop() || filepath
+
+    // Check if filename matches CALIPSO pattern
+    if (!filename.startsWith('CAL_LID_L1-Standard-V4-51')) {
       continue
     }
 
-    // Standard directory-based structure
-    const dirname = filepath.split('/').pop() || filepath
-
-    // Check if directory name matches CALIPSO pattern
-    if (!dirname.startsWith('CAL_LID_L1-Standard-V4-51')) {
-      continue
-    }
-
-    // Extract date and band from directory name
-    // Format: CAL_LID_L1-Standard-V4-51.2023-06-30T16-44-43ZD (Potree directory)
-    const match = dirname.match(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z([DN])/)
+    // Extract date and band from COPC filename
+    // Format: CAL_LID_L1-Standard-V4-51.2023-06-30T16-44-43ZD.copc.laz
+    const match = filename.match(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z([DN])/)
     if (!match) {
       continue
     }
@@ -265,14 +254,19 @@ export function parseCalipsoFilename(filename: string): {
  * - Dynamic directory scan
  */
 export function getAvailableFileList(): string[] {
-  // CONFIGURE THIS: Update with your actual file paths
-  // Using Potree format with FLAT structure (metadata.json in root, not in pointclouds/index/)
-  // The converted Potree data is stored directly in potree_data_test/
-  const dataDirectory = '/potree_data_test' // Potree data location (flat structure)
+  // Using COPC format (.copc.laz files) for efficient HTTP range-based loading
+  // COPC supports loading only specific octree nodes, not the entire file
+  const dataDirectory = '/potree_data' // COPC data location
 
   return [
-    `${dataDirectory}`, // Points directly to the Potree directory (flat structure)
-    // Add more Potree directories here as needed
+    // CALIPSO Level 1 data from 2023-06-30
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T16-44-43ZD.copc.laz`, // Day band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T17-37-28ZN.copc.laz`, // Night band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T18-23-08ZD.copc.laz`, // Day band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T19-15-53ZN.copc.laz`, // Night band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T20-01-33ZD.copc.laz`, // Day band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T20-54-18ZN.copc.laz`, // Night band
+    `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T21-39-53ZD.copc.laz`, // Day band
   ]
 }
 

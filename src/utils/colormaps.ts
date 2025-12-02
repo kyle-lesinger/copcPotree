@@ -2,7 +2,7 @@
  * Color map utilities for scientific data visualization
  */
 
-export type Colormap = 'viridis' | 'plasma' | 'turbo' | 'coolwarm' | 'jet' | 'grayscale'
+export type Colormap = 'viridis' | 'plasma' | 'turbo' | 'coolwarm' | 'jet' | 'grayscale' | 'calipso'
 
 /**
  * Apply a colormap to a normalized value (0-1)
@@ -27,6 +27,8 @@ export function applyColormap(t: number, colormap: Colormap): [number, number, n
       return jet(t)
     case 'grayscale':
       return grayscale(t)
+    case 'calipso':
+      return calipso(t)
     default:
       return viridis(t)
   }
@@ -142,6 +144,43 @@ function grayscale(t: number): [number, number, number] {
 }
 
 /**
+ * CALIPSO colormap - 10 discrete bins for atmospheric feature classification
+ * Based on backscatter intensity ranges typical for CALIPSO data
+ *
+ * Bins (assuming logarithmic scale from 1e-5 to 1e-2):
+ * 0: Clear air (very low backscatter) - Dark blue
+ * 1: Molecular atmosphere - Blue
+ * 2: Tenuous aerosol - Cyan
+ * 3: Light aerosol - Light green
+ * 4: Moderate aerosol - Green
+ * 5: Dense aerosol - Yellow-green
+ * 6: Very dense aerosol/thin cloud - Yellow
+ * 7: Opaque aerosol/cloud - Orange
+ * 8: Dense cloud - Red
+ * 9: Very dense cloud/precipitation - Dark red
+ */
+function calipso(t: number): [number, number, number] {
+  // Define 10 discrete color bins
+  const bins = [
+    [15, 15, 60],      // 0: Dark blue - Clear air
+    [30, 60, 140],     // 1: Blue - Molecular atmosphere
+    [40, 140, 180],    // 2: Cyan - Tenuous aerosol
+    [80, 180, 120],    // 3: Light green - Light aerosol
+    [100, 200, 80],    // 4: Green - Moderate aerosol
+    [160, 200, 60],    // 5: Yellow-green - Dense aerosol
+    [220, 200, 40],    // 6: Yellow - Very dense aerosol/thin cloud
+    [240, 140, 30],    // 7: Orange - Opaque aerosol/cloud
+    [230, 60, 30],     // 8: Red - Dense cloud
+    [140, 20, 20]      // 9: Dark red - Very dense cloud/precipitation
+  ]
+
+  // Bin the normalized value into 10 categories
+  const binIndex = Math.min(9, Math.floor(t * 10))
+
+  return bins[binIndex] as [number, number, number]
+}
+
+/**
  * Get a human-readable name for a colormap
  */
 export function getColormapName(colormap: Colormap): string {
@@ -151,7 +190,30 @@ export function getColormapName(colormap: Colormap): string {
     turbo: 'Turbo',
     coolwarm: 'Cool-Warm',
     jet: 'Jet',
-    grayscale: 'Grayscale'
+    grayscale: 'Grayscale',
+    calipso: 'CALIPSO (10 bins)'
   }
   return names[colormap]
+}
+
+/**
+ * Get legend information for binned colormaps
+ * Returns an array of [label, color] pairs for discrete colormaps
+ */
+export function getColormapLegend(colormap: Colormap): Array<[string, [number, number, number]]> | null {
+  if (colormap === 'calipso') {
+    return [
+      ['Clear air', [15, 15, 60]],
+      ['Molecular atmosphere', [30, 60, 140]],
+      ['Tenuous aerosol', [40, 140, 180]],
+      ['Light aerosol', [80, 180, 120]],
+      ['Moderate aerosol', [100, 200, 80]],
+      ['Dense aerosol', [160, 200, 60]],
+      ['Very dense aerosol/thin cloud', [220, 200, 40]],
+      ['Opaque aerosol/cloud', [240, 140, 30]],
+      ['Dense cloud', [230, 60, 30]],
+      ['Very dense cloud/precip', [140, 20, 20]]
+    ]
+  }
+  return null // Continuous colormaps don't have discrete legends
 }

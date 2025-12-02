@@ -113,3 +113,31 @@ export function getPolygonBounds(polygon: LatLon[]): {
 
   return { minLat, maxLat, minLon, maxLon }
 }
+
+/**
+ * Calculate the approximate area of a polygon in square degrees using Shoelace formula
+ * Note: This is an approximation for small polygons on Earth's surface
+ * @param polygon Array of polygon vertices
+ * @returns Area in square degrees
+ */
+export function calculatePolygonArea(polygon: LatLon[]): number {
+  if (polygon.length < 3) return 0
+
+  // Ensure polygon is closed
+  const vertices = [...polygon]
+  const first = vertices[0]
+  const last = vertices[vertices.length - 1]
+  if (first.lat !== last.lat || first.lon !== last.lon) {
+    vertices.push(first)
+  }
+
+  // Shoelace formula
+  let area = 0
+  for (let i = 0; i < vertices.length - 1; i++) {
+    const p1 = vertices[i]
+    const p2 = vertices[i + 1]
+    area += (p1.lon * p2.lat) - (p2.lon * p1.lat)
+  }
+
+  return Math.abs(area / 2)
+}

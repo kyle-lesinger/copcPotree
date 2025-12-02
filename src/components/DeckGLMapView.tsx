@@ -33,6 +33,13 @@ interface DeckGLMapViewProps {
     bearing: number
     perpendicularBearing: number
   } | null
+  intensityPercentiles?: {
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  } | null
+  onZoomThresholdChange?: (threshold: number | undefined) => void
 }
 
 export interface DeckGLMapViewHandle {
@@ -45,7 +52,7 @@ export interface DeckGLMapViewHandle {
 }
 
 const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
-  ({ center, zoom = 5, data, colorMode, colormap, pointSize, dataVersion, isDrawingAOI, aoiPolygon, onPolygonComplete, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet, groundModeViewData }, ref) => {
+  ({ center, zoom = 5, data, colorMode, colormap, pointSize, dataVersion, isDrawingAOI, aoiPolygon, onPolygonComplete, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet, groundModeViewData, intensityPercentiles, onZoomThresholdChange }, ref) => {
     const mapContainer = useRef<HTMLDivElement>(null)
     const mapRef = useRef<maplibregl.Map | null>(null)
     const deckOverlayRef = useRef<MapboxOverlay | null>(null)
@@ -173,8 +180,8 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
         }
       }
 
-      // Sample every ~50km along the track for smooth curves
-      const numSamples = Math.max(4, Math.ceil(trackLength / 50))
+      // Sample every ~20km along the track for more detailed rectangles
+      const numSamples = Math.max(4, Math.ceil(trackLength / 20))
 
       // Helper function to calculate track direction from a window of points
       // Uses 5 points centered on the middle point to determine local track bearing
@@ -279,77 +286,79 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
           return Math.abs(lon2 - lon1) > 180
         }
 
-        // Third pass: Create small rectangular segments
+        // Third pass: Create many small 4-point rectangular segments
         // Each segment connects two consecutive sample points
-        const rectangleSegments: Array<{ polygon: Array<{ lat: number, lon: number }> }> = []
+        const rectangles: Array<{ polygon: Array<{ lat: number, lon: number }> }> = []
         let skippedCount = 0
 
-        for (let i = 0; i < localBearings.length - 1; i++) {
-          const idx1 = localBearings[i].index
-          const idx2 = localBearings[i + 1].index
-          const centerPoint1 = actualTrackPoints[idx1]
-          const centerPoint2 = actualTrackPoints[idx2]
-          const smoothedBearing1 = smoothedBearings[i]
-          const smoothedBearing2 = smoothedBearings[i + 1]
+        // Calculate boundary points for all samples first
+        const boundaryPoints: Array<{ inner: { lat: number, lon: number }, outer: { lat: number, lon: number } }> = []
 
-          // Calculate latitude-adjusted offsets for each point
-          const offsets1 = getLatitudeAdjustedOffsets(centerPoint1.lat)
-          const offsets2 = getLatitudeAdjustedOffsets(centerPoint2.lat)
+        for (let i = 0; i < localBearings.length; i++) {
+          const idx = localBearings[i].index
+          const centerPoint = actualTrackPoints[idx]
+          const smoothedBearing = smoothedBearings[i]
 
-          // Calculate perpendicular bearings for both points
-          const perpendicularBearing1 = isLeftSide
-            ? (smoothedBearing1 - 90 + 360) % 360  // 90° left
-            : (smoothedBearing1 + 90) % 360         // 90° right
+          // Calculate latitude-adjusted offsets for this point
+          const offsets = getLatitudeAdjustedOffsets(centerPoint.lat)
 
-          const perpendicularBearing2 = isLeftSide
-            ? (smoothedBearing2 - 90 + 360) % 360
-            : (smoothedBearing2 + 90) % 360
+          // Calculate perpendicular bearing
+          const perpendicularBearing = isLeftSide
+            ? (smoothedBearing - 90 + 360) % 360  // 90° left
+            : (smoothedBearing + 90) % 360         // 90° right
 
-          // Calculate inner and outer points for both positions using latitude-adjusted offsets
-          const inner1 = calculatePointAtDistanceAndBearing(
-            centerPoint1.lat, centerPoint1.lon, offsets1.inner, perpendicularBearing1
+          // Calculate inner and outer boundary points
+          const inner = calculatePointAtDistanceAndBearing(
+            centerPoint.lat, centerPoint.lon, offsets.inner, perpendicularBearing
           )
-          const outer1 = calculatePointAtDistanceAndBearing(
-            centerPoint1.lat, centerPoint1.lon, offsets1.outer, perpendicularBearing1
-          )
-          const inner2 = calculatePointAtDistanceAndBearing(
-            centerPoint2.lat, centerPoint2.lon, offsets2.inner, perpendicularBearing2
-          )
-          const outer2 = calculatePointAtDistanceAndBearing(
-            centerPoint2.lat, centerPoint2.lon, offsets2.outer, perpendicularBearing2
+          const outer = calculatePointAtDistanceAndBearing(
+            centerPoint.lat, centerPoint.lon, offsets.outer, perpendicularBearing
           )
 
-          // Check if any edge of this rectangle crosses the dateline
-          const crosses = crossesDateline(inner1.lon, inner2.lon) ||
-                         crossesDateline(outer1.lon, outer2.lon) ||
-                         crossesDateline(inner1.lon, outer1.lon) ||
-                         crossesDateline(inner2.lon, outer2.lon)
+          boundaryPoints.push({ inner, outer })
+        }
+
+        // Create rectangles from consecutive pairs of boundary points
+        for (let i = 0; i < boundaryPoints.length - 1; i++) {
+          const p1 = boundaryPoints[i]
+          const p2 = boundaryPoints[i + 1]
+
+          // Check if this segment would cross the dateline
+          const crosses = crossesDateline(p1.inner.lon, p2.inner.lon) ||
+                         crossesDateline(p1.outer.lon, p2.outer.lon)
 
           if (crosses) {
             skippedCount++
-            continue  // Skip rectangles that cross the dateline
+            continue  // Skip segments that would create dateline crossing
           }
 
-          // Create a 4-point rectangle polygon in counter-clockwise order
-          // Order: inner1 -> inner2 -> outer2 -> outer1 -> back to inner1
-          const rectangle = {
-            polygon: [inner1, inner2, outer2, outer1]
-          }
+          // Create 4-point rectangle polygon
+          // Order: inner1 → inner2 → outer2 → outer1 → close
+          const polygon = [
+            p1.inner,  // Inner edge start
+            p2.inner,  // Inner edge end
+            p2.outer,  // Outer edge end
+            p1.outer   // Outer edge start (closes back to inner1)
+          ]
 
-          rectangleSegments.push(rectangle)
+          rectangles.push({ polygon })
         }
 
-        return rectangleSegments
+        if (skippedCount > 0) {
+          console.log(`[DeckGLMapView] Skipped ${skippedCount} rectangle segments due to dateline crossing`)
+        }
+
+        return rectangles
       }
 
-      // Create left and right rectangle segments using actual track data
+      // Create left and right segmented rectangles using actual track data
       const leftRectangles = createRectangle(true)  // Left side (90° left of track)
       const rightRectangles = createRectangle(false) // Right side (90° right of track)
 
       // Combine left and right rectangles into one array
       const allRectangles = [...leftRectangles, ...rightRectangles]
 
-      console.log(`[DeckGLMapView] Ground mode: Created ${allRectangles.length} rectangle segments (${leftRectangles.length} left, ${rightRectangles.length} right)`)
+      console.log(`[DeckGLMapView] Ground mode: Created ${allRectangles.length} segmented rectangles (${leftRectangles.length} left, ${rightRectangles.length} right) along ${trackLength.toFixed(0)}km swath`)
 
       return allRectangles
     }
@@ -552,6 +561,52 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
         map.remove()
       }
     }, [])
+
+    // Track zoom level and calculate intensity threshold for progressive loading
+    useEffect(() => {
+      if (!mapRef.current || !intensityPercentiles || !onZoomThresholdChange) return
+
+      const handleZoomEnd = () => {
+        if (!mapRef.current || !intensityPercentiles) return
+
+        const currentZoom = mapRef.current.getZoom()
+        let threshold: number | undefined
+
+        // Progressive loading based on zoom level
+        // Zoom < 6: Load only top 10% (>90th percentile)
+        // Zoom 6-7: Load top 25% (>75th percentile)
+        // Zoom 7-8: Load top 50% (>50th percentile)
+        // Zoom 8-9: Load top 75% (>25th percentile)
+        // Zoom >= 9: Load all points (no threshold)
+
+        if (currentZoom < 6) {
+          threshold = intensityPercentiles.p90
+        } else if (currentZoom < 7) {
+          threshold = intensityPercentiles.p75
+        } else if (currentZoom < 8) {
+          threshold = intensityPercentiles.p50
+        } else if (currentZoom < 9) {
+          threshold = intensityPercentiles.p25
+        } else {
+          threshold = undefined // Load all points
+        }
+
+        console.log(`[DeckGLMapView] 🔍 Zoom level: ${currentZoom.toFixed(1)}`)
+        console.log(`[DeckGLMapView] 📊 Intensity threshold: ${threshold !== undefined ? threshold.toFixed(3) + ' km⁻¹·sr⁻¹' : 'None (loading all points)'}`)
+
+        onZoomThresholdChange(threshold)
+      }
+
+      // Listen for zoom changes
+      mapRef.current.on('zoomend', handleZoomEnd)
+
+      // Call once on mount to set initial threshold
+      handleZoomEnd()
+
+      return () => {
+        mapRef.current?.off('zoomend', handleZoomEnd)
+      }
+    }, [intensityPercentiles, onZoomThresholdChange])
 
     // Update center and zoom when props change
     useEffect(() => {
@@ -838,12 +893,12 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
         console.log(`[DeckGLMapView] Rendering completed polygon with ${completedPolygon.length} vertices`)
       }
 
-      // Add ground mode guidance rectangles (grey semi-transparent)
+      // Add ground mode guidance rectangles (yellow brick road)
       // Use a SINGLE PolygonLayer for all rectangles for better performance
       if (groundModeRectangles && groundModeRectangles.length > 0) {
         // Calculate opacity based on pulse animation
-        const baseFillOpacity = 100
-        const baseStrokeOpacity = 200
+        const baseFillOpacity = 120
+        const baseStrokeOpacity = 220
         const fillOpacity = pulseAnimation ? baseFillOpacity + 80 : baseFillOpacity  // Brighter when pulsing
         const strokeOpacity = pulseAnimation ? 255 : baseStrokeOpacity
 
@@ -856,8 +911,8 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
           id: 'ground-mode-rectangles',
           data: polygonData,
           getPolygon: (d: any) => d.polygon,
-          getFillColor: [128, 128, 128, fillOpacity], // Grey with transparency, brighter when pulsing
-          getLineColor: [80, 80, 80, strokeOpacity], // Darker grey border
+          getFillColor: [255, 215, 0, fillOpacity], // Yellow/gold with transparency, brighter when pulsing
+          getLineColor: [218, 165, 32, strokeOpacity], // Golden brown border
           getLineWidth: pulseAnimation ? 5 : 3, // Thicker when pulsing
           lineWidthUnits: 'pixels',
           filled: true,

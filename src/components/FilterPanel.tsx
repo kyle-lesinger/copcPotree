@@ -1,4 +1,5 @@
 import { SpatialBoundsFilter, DateRangeFilter as DateRangeFilterType, DataRange, BandType } from '../App'
+import { LatLon } from '../utils/aoiSelector'
 import DayNightBandFilter from './DayNightBandFilter'
 import DateRangeFilterComponent from './DateRangeFilter'
 import SpatialBoundsPanel from './SpatialBoundsPanel'
@@ -18,6 +19,8 @@ interface FilterPanelProps {
   onResetSpatialBoundsFilter: () => void
   // Data ranges for validation
   globalDataRange: DataRange
+  // AOI polygon
+  aoiPolygon: LatLon[] | null
 }
 
 export default function FilterPanel({
@@ -29,7 +32,8 @@ export default function FilterPanel({
   spatialBoundsFilter,
   onSpatialBoundsFilterChange,
   onResetSpatialBoundsFilter,
-  globalDataRange
+  globalDataRange,
+  aoiPolygon
 }: FilterPanelProps) {
   return (
     <div className="panel filter-panel">
@@ -56,6 +60,9 @@ export default function FilterPanel({
         maxLat={spatialBoundsFilter.maxLat}
         minAlt={spatialBoundsFilter.minAlt}
         maxAlt={spatialBoundsFilter.maxAlt}
+        useUSBounds={spatialBoundsFilter.useUSBounds}
+        useAOIBounds={spatialBoundsFilter.useAOIBounds}
+        hasAOI={aoiPolygon !== null && aoiPolygon.length >= 3}
         absoluteBounds={globalDataRange.elevation ? {
           minLon: -180,
           maxLon: 180,
@@ -66,6 +73,8 @@ export default function FilterPanel({
         } : null}
         onApply={(bounds) => onSpatialBoundsFilterChange(bounds)}
         onReset={onResetSpatialBoundsFilter}
+        onToggleUSBounds={() => onSpatialBoundsFilterChange({ useUSBounds: !spatialBoundsFilter.useUSBounds })}
+        onToggleAOIBounds={() => onSpatialBoundsFilterChange({ useAOIBounds: !spatialBoundsFilter.useAOIBounds })}
         enabled={spatialBoundsFilter.enabled}
         onToggleEnabled={() => onSpatialBoundsFilterChange({ enabled: !spatialBoundsFilter.enabled })}
       />

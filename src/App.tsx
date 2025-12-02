@@ -26,6 +26,8 @@ export interface HeightFilter {
 
 export interface SpatialBoundsFilter {
   enabled: boolean
+  useUSBounds: boolean  // If true, use US bounding box preset
+  useAOIBounds: boolean  // If true, use AOI polygon bounding box
   minLon: number
   maxLon: number
   minLat: number
@@ -73,12 +75,17 @@ function App() {
   })
 
   // Spatial bounds filter state
+  // Default bounds cover global range to match CALIPSO orbital data
+  // Data typically spans: Lon -180° to 180°, Lat -82° to 82° (polar orbit)
+  // US bounds: Lon -125° to -66°, Lat 24° to 49°
   const [spatialBoundsFilter, setSpatialBoundsFilter] = useState<SpatialBoundsFilter>({
     enabled: false,
+    useUSBounds: false,
+    useAOIBounds: false,
     minLon: -180,
     maxLon: 180,
-    minLat: -90,
-    maxLat: 90,
+    minLat: -82,  // CALIPSO's polar orbit coverage
+    maxLat: 82,   // CALIPSO's polar orbit coverage
     minAlt: 0,
     maxAlt: 40
   })
@@ -143,7 +150,71 @@ function App() {
 
   const handleSpatialBoundsFilterChange = (updates: Partial<SpatialBoundsFilter>) => {
     setSpatialBoundsFilter(prev => {
-      const newFilter = { ...prev, ...updates }
+      let newFilter = { ...prev, ...updates }
+
+      // Handle US bounds preset toggle
+      if ('useUSBounds' in updates) {
+        if (updates.useUSBounds) {
+          console.log('[App] 🇺🇸 US bounding box preset ENABLED')
+          // Apply US bounds: Continental US coverage
+          newFilter = {
+            ...newFilter,
+            useUSBounds: true,
+            useAOIBounds: false,  // Disable AOI bounds when using US bounds
+            minLon: -125,  // West coast
+            maxLon: -66,   // East coast
+            minLat: 24,    // Southern tip (Florida Keys)
+            maxLat: 49,    // Northern border (US-Canada)
+            minAlt: 0,     // Sea level
+            maxAlt: 40     // Maximum altitude
+          }
+        } else {
+          console.log('[App] 🌍 US bounding box preset DISABLED - returning to custom bounds')
+          newFilter = {
+            ...newFilter,
+            useUSBounds: false
+          }
+        }
+      }
+
+      // Handle AOI bounds preset toggle
+      if ('useAOIBounds' in updates) {
+        if (updates.useAOIBounds && aoiPolygon && aoiPolygon.length >= 3) {
+          console.log('[App] 🎯 AOI bounding box ENABLED')
+          // Calculate bounding box from AOI polygon
+          const lats = aoiPolygon.map(p => p.lat)
+          const lons = aoiPolygon.map(p => p.lon)
+          const minLat = Math.min(...lats)
+          const maxLat = Math.max(...lats)
+          const minLon = Math.min(...lons)
+          const maxLon = Math.max(...lons)
+
+          console.log(`[App] 📍 AOI bounds: Lon ${minLon.toFixed(2)}° to ${maxLon.toFixed(2)}°, Lat ${minLat.toFixed(2)}° to ${maxLat.toFixed(2)}°`)
+
+          // Apply AOI bounding box
+          newFilter = {
+            ...newFilter,
+            useAOIBounds: true,
+            useUSBounds: false,  // Disable US bounds when using AOI bounds
+            minLon,
+            maxLon,
+            minLat,
+            maxLat,
+            minAlt: 0,     // Keep altitude range
+            maxAlt: 40
+          }
+        } else {
+          if (updates.useAOIBounds && (!aoiPolygon || aoiPolygon.length < 3)) {
+            console.log('[App] ⚠️  Cannot enable AOI bounds - no AOI polygon defined')
+          } else {
+            console.log('[App] 🌍 AOI bounding box DISABLED - returning to custom bounds')
+          }
+          newFilter = {
+            ...newFilter,
+            useAOIBounds: false
+          }
+        }
+      }
 
       // Log when filter is enabled/disabled
       if ('enabled' in updates && updates.enabled !== prev.enabled) {
@@ -366,6 +437,7 @@ function App() {
         onSpatialBoundsFilterChange={handleSpatialBoundsFilterChange}
         onResetSpatialBoundsFilter={handleResetSpatialBoundsFilter}
         globalDataRange={globalDataRange}
+        aoiPolygon={aoiPolygon}
       />
 
       <ControlPanel

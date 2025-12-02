@@ -8,6 +8,9 @@ interface SpatialBoundsPanelProps {
   maxLat: number
   minAlt: number
   maxAlt: number
+  useUSBounds: boolean
+  useAOIBounds: boolean
+  hasAOI: boolean
   absoluteBounds: {
     minLon: number
     maxLon: number
@@ -25,6 +28,8 @@ interface SpatialBoundsPanelProps {
     maxAlt: number
   }) => void
   onReset: () => void
+  onToggleUSBounds: () => void
+  onToggleAOIBounds: () => void
   enabled: boolean
   onToggleEnabled: () => void
 }
@@ -36,9 +41,14 @@ export default function SpatialBoundsPanel({
   maxLat,
   minAlt,
   maxAlt,
+  useUSBounds,
+  useAOIBounds,
+  hasAOI,
   absoluteBounds,
   onApply,
   onReset,
+  onToggleUSBounds,
+  onToggleAOIBounds,
   enabled,
   onToggleEnabled
 }: SpatialBoundsPanelProps) {
@@ -187,6 +197,63 @@ export default function SpatialBoundsPanel({
       </div>
 
       <div className={`spatial-bounds-controls ${!enabled ? 'disabled' : ''}`}>
+        {/* US Bounds Preset */}
+        <div className="us-bounds-preset">
+          <label className="us-bounds-checkbox">
+            <input
+              type="checkbox"
+              checked={useUSBounds}
+              onChange={onToggleUSBounds}
+              disabled={!enabled}
+            />
+            <span className="checkbox-label">Filter to US Only</span>
+          </label>
+          {useUSBounds && (
+            <div className="us-bounds-info">
+              Continental US: 125°W to 66°W, 24°N to 49°N
+            </div>
+          )}
+        </div>
+
+        {/* AOI Bounds Preset */}
+        <div className="us-bounds-preset">
+          <label className="us-bounds-checkbox">
+            <input
+              type="checkbox"
+              checked={useAOIBounds}
+              onChange={() => {
+                console.log('[SpatialBoundsPanel] AOI bounds toggle clicked:', { enabled, hasAOI, useAOIBounds })
+                onToggleAOIBounds()
+                // Auto-apply when toggling AOI bounds (bounds are already set in App.tsx)
+                if (!useAOIBounds && hasAOI) {
+                  // Wait for state update, then apply
+                  setTimeout(() => {
+                    onApply({
+                      minLon: parseFloat(minLonInput),
+                      maxLon: parseFloat(maxLonInput),
+                      minLat: parseFloat(minLatInput),
+                      maxLat: parseFloat(maxLatInput),
+                      minAlt: parseFloat(minAltInput),
+                      maxAlt: parseFloat(maxAltInput)
+                    })
+                  }, 100)
+                }
+              }}
+              disabled={!enabled || !hasAOI}
+            />
+            <span className="checkbox-label">
+              Use AOI as Filter
+              {!enabled && ' (Enable filter first)'}
+              {enabled && !hasAOI && ' (Draw AOI first)'}
+            </span>
+          </label>
+          {useAOIBounds && hasAOI && (
+            <div className="us-bounds-info">
+              Using bounding box from drawn AOI polygon
+            </div>
+          )}
+        </div>
+
         {/* Longitude Range */}
         <div className="spatial-input-section">
           <label className="section-label">Longitude (°)</label>
@@ -199,7 +266,7 @@ export default function SpatialBoundsPanel({
                 value={minLonInput}
                 onChange={(e) => setMinLonInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.minLon.toFixed(2) : '0'}
               />
             </div>
@@ -212,7 +279,7 @@ export default function SpatialBoundsPanel({
                 value={maxLonInput}
                 onChange={(e) => setMaxLonInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.maxLon.toFixed(2) : '0'}
               />
             </div>
@@ -231,7 +298,7 @@ export default function SpatialBoundsPanel({
                 value={minLatInput}
                 onChange={(e) => setMinLatInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.minLat.toFixed(2) : '0'}
               />
             </div>
@@ -244,7 +311,7 @@ export default function SpatialBoundsPanel({
                 value={maxLatInput}
                 onChange={(e) => setMaxLatInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.maxLat.toFixed(2) : '0'}
               />
             </div>
@@ -263,7 +330,7 @@ export default function SpatialBoundsPanel({
                 value={minAltInput}
                 onChange={(e) => setMinAltInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.minAlt.toFixed(1) : '0'}
               />
             </div>
@@ -276,7 +343,7 @@ export default function SpatialBoundsPanel({
                 value={maxAltInput}
                 onChange={(e) => setMaxAltInput(e.target.value)}
                 className="spatial-input"
-                disabled={!enabled}
+                disabled={!enabled || useUSBounds || useAOIBounds}
                 placeholder={absoluteBounds ? absoluteBounds.maxAlt.toFixed(1) : '0'}
               />
             </div>
