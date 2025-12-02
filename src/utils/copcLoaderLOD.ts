@@ -61,7 +61,7 @@ export class COPCLODManager {
   private scene: THREE.Scene
   private nodes: Map<string, COPCNode> = new Map()
   private rootNode: COPCNode | null = null
-  private pointBudget: number = 2_000_000 // Max points to display
+  private pointBudget: number = 10_000_000 // Max points to display (increased to allow all points when zoomed in)
   private currentPointCount: number = 0
   private hasLoggedFrustumCull: boolean = false
 
@@ -389,7 +389,7 @@ export class COPCLODManager {
     const nodeSize = node.bounds.max.x - node.bounds.min.x
     const shouldRefine = this.shouldRefineNode(node, distance, nodeSize)
 
-    if (shouldRefine && node.depth < 8) { // Max depth limit
+    if (shouldRefine && node.depth < 15) { // Max depth limit (increased to allow full refinement)
       // Try to load children
       const childKeys = this.getChildKeys(node)
 
@@ -450,16 +450,32 @@ export class COPCLODManager {
 
   /**
    * Determine if node should be refined (show children instead)
+   *
+   * Distance-based LOD strategy (adjusted for more points at all zoom levels):
+   * - Very far (distance > 2500): Show coarse detail (depth 0-4) ~25% of points
+   * - Far (distance 1500-2500): Show medium detail (depth 0-8) ~50% of points
+   * - Medium (distance 800-1500): Show high detail (depth 0-12) ~75% of points
+   * - Close (distance < 800): Show maximum detail (all depths) ~100% of points
    */
   private shouldRefineNode(node: COPCNode, distance: number, nodeSize: number): boolean {
-    // Screen space error threshold
-    // If node is close enough, we want higher detail (children)
-    const threshold = nodeSize / distance
-    // AGGRESSIVE: Always refine to at least depth 4 to show more data immediately
-    if (node.depth < 4) {
-      return true // Always refine first 4 levels
+    // Distance-based depth targets
+    // When CLOSE, we want to refine to DEEPER levels to show more points
+    // When FAR, we want to stop at SHALLOW levels to show fewer points
+
+    if (distance > 2500) {
+      // Very far - show coarse detail (depth 0-4) for ~25% of points
+      return node.depth < 4
+    } else if (distance > 1500) {
+      // Far - show medium detail (depth 0-8) for ~50% of points
+      return node.depth < 8
+    } else if (distance > 800) {
+      // Medium - show high detail (depth 0-12) for ~75% of points
+      return node.depth < 12
+    } else {
+      // Close - show maximum detail (all depths) for ~100% of points
+      // Continue refining as deep as the octree goes
+      return true
     }
-    return threshold > 0.1 // Much more aggressive than 0.01
   }
 
   /**
@@ -528,23 +544,19 @@ export class COPCLODManager {
       const scale = this.copc.header.scale
       const offset = this.copc.header.offset
 
-      // DEBUG: Log scale and offset for EVERY node load to diagnose quantization
+      // DEBUG: Log scale and offset (applied internally by view.getter())
       console.log(`[COPCLODManager] 🔬 SCALE/OFFSET for node ${node.key}:`)
       console.log(`  Scale:  [${scale[0]}, ${scale[1]}, ${scale[2]}]`)
       console.log(`  Offset: [${offset[0]}, ${offset[1]}, ${offset[2]}]`)
+      console.log(`  Note: These are applied internally by COPC view.getter()`)
 
       let validPoints = 0
 
       for (let i = 0; i < count; i++) {
-        // Get raw values
-        const rawX = getX(i)
-        const rawY = getY(i)
-        const rawZ = getZ(i)
-
-        // Apply scale and offset
-        const x = rawX * scale[0] + offset[0]
-        const y = rawY * scale[1] + offset[1]
-        const z = rawZ * scale[2] + offset[2]
+        // Get geographic coordinates (already scaled by view.getter())
+        const x = getX(i)
+        const y = getY(i)
+        const z = getZ(i)
 
         // Get GPS time (TAI93 - seconds since 1993-01-01)
         const gpsTime = getGpsTime(i)

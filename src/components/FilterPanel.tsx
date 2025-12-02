@@ -56,6 +56,7 @@ export default function FilterPanel({
         maxLat={spatialBoundsFilter.maxLat}
         minAlt={spatialBoundsFilter.minAlt}
         maxAlt={spatialBoundsFilter.maxAlt}
+        useUSBounds={spatialBoundsFilter.useUSBounds}
         absoluteBounds={globalDataRange.elevation ? {
           minLon: -180,
           maxLon: 180,
@@ -66,6 +67,7 @@ export default function FilterPanel({
         } : null}
         onApply={(bounds) => onSpatialBoundsFilterChange(bounds)}
         onReset={onResetSpatialBoundsFilter}
+        onToggleUSBounds={() => onSpatialBoundsFilterChange({ useUSBounds: !spatialBoundsFilter.useUSBounds })}
         enabled={spatialBoundsFilter.enabled}
         onToggleEnabled={() => onSpatialBoundsFilterChange({ enabled: !spatialBoundsFilter.enabled })}
       />

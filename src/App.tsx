@@ -26,6 +26,7 @@ export interface HeightFilter {
 
 export interface SpatialBoundsFilter {
   enabled: boolean
+  useUSBounds: boolean  // If true, use US bounding box preset
   minLon: number
   maxLon: number
   minLat: number
@@ -73,12 +74,16 @@ function App() {
   })
 
   // Spatial bounds filter state
+  // Default bounds cover global range to match CALIPSO orbital data
+  // Data typically spans: Lon -180° to 180°, Lat -82° to 82° (polar orbit)
+  // US bounds: Lon -125° to -66°, Lat 24° to 49°
   const [spatialBoundsFilter, setSpatialBoundsFilter] = useState<SpatialBoundsFilter>({
     enabled: false,
+    useUSBounds: false,
     minLon: -180,
     maxLon: 180,
-    minLat: -90,
-    maxLat: 90,
+    minLat: -82,  // CALIPSO's polar orbit coverage
+    maxLat: 82,   // CALIPSO's polar orbit coverage
     minAlt: 0,
     maxAlt: 40
   })
@@ -143,7 +148,31 @@ function App() {
 
   const handleSpatialBoundsFilterChange = (updates: Partial<SpatialBoundsFilter>) => {
     setSpatialBoundsFilter(prev => {
-      const newFilter = { ...prev, ...updates }
+      let newFilter = { ...prev, ...updates }
+
+      // Handle US bounds preset toggle
+      if ('useUSBounds' in updates) {
+        if (updates.useUSBounds) {
+          console.log('[App] 🇺🇸 US bounding box preset ENABLED')
+          // Apply US bounds: Continental US coverage
+          newFilter = {
+            ...newFilter,
+            useUSBounds: true,
+            minLon: -125,  // West coast
+            maxLon: -66,   // East coast
+            minLat: 24,    // Southern tip (Florida Keys)
+            maxLat: 49,    // Northern border (US-Canada)
+            minAlt: 0,     // Sea level
+            maxAlt: 40     // Maximum altitude
+          }
+        } else {
+          console.log('[App] 🌍 US bounding box preset DISABLED - returning to custom bounds')
+          newFilter = {
+            ...newFilter,
+            useUSBounds: false
+          }
+        }
+      }
 
       // Log when filter is enabled/disabled
       if ('enabled' in updates && updates.enabled !== prev.enabled) {

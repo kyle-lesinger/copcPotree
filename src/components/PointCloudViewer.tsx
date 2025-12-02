@@ -3,14 +3,13 @@ import * as THREE from 'three'
 import { ColorMode, Colormap, DataRange, ViewMode, HeightFilter, SpatialBoundsFilter } from '../App'
 import { COPCLODManager, SpatialBounds, TimeRange } from '../utils/copcLoaderLOD'
 import {
-  loadPotreeData,
-  PointCloudData
-} from '../utils/potreeLoader'
-import {
+  loadCOPCFile,
+  loadCOPCFileWithSpatialBounds,
   computeElevationColors,
   computeIntensityColors,
-  computeClassificationColors
-} from '../utils/copcLoader' // Keep color computation functions
+  computeClassificationColors,
+  PointCloudData
+} from '../utils/copcLoader'
 import { convertPointsToGlobe, convertPointsTo2D, haversineDistance, calculateBearing, calculatePointAtDistanceAndBearing } from '../utils/coordinateConversion'
 import { LatLon, filterDataByAOI } from '../utils/aoiSelector'
 // GlobeViewer removed - 2D mode only
@@ -70,6 +69,13 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
     elevation: null,
     intensity: null
   })
+  const [intensityPercentiles, setIntensityPercentiles] = useState<{
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  } | null>(null)
+  const [currentIntensityThreshold, setCurrentIntensityThreshold] = useState<number | undefined>(undefined)
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0])
   const [mapZoom, setMapZoom] = useState<number>(5)
   const [initialCameraDistance, setInitialCameraDistance] = useState<number>(2.5) // Calculated based on data extent
@@ -334,6 +340,13 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
     }
   }, [findNearestPoint, onGroundCameraPositionSet])
 
+  // Handle zoom-based intensity threshold changes for progressive loading
+  const handleZoomThresholdChange = useCallback((threshold: number | undefined) => {
+    console.log(`[PointCloudViewer] 🎚️  Zoom threshold changed: ${threshold !== undefined ? threshold.toFixed(3) + ' km⁻¹·sr⁻¹' : 'None (all points)'}`)
+    console.log(`[PointCloudViewer] 🔄 Progressive loading will filter points client-side`)
+    setCurrentIntensityThreshold(threshold)
+  }, [])
+
   // Update globe LOD based on camera distance - removed for 2D-only mode
   const updateGlobeLOD = useCallback(() => {
     // 2D mode only - no globe LOD needed
@@ -351,11 +364,52 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
   //   // 2D mode only - no LOD monitoring needed
   // }, [viewMode, updateGlobeLOD])
 
+  // Filter points by intensity threshold for progressive loading
+  const filterPointsByIntensity = useCallback((data: PointCloudData, threshold: number | undefined): PointCloudData => {
+    if (threshold === undefined) {
+      return data // No filtering
+    }
+
+    // Filter points based on intensity threshold
+    const filteredPositions: number[] = []
+    const filteredColors: number[] = []
+    const filteredIntensities: number[] = []
+    const filteredClassifications: number[] = []
+
+    for (let i = 0; i < data.intensities.length; i++) {
+      const lasIntensity = data.intensities[i]
+      const physicalIntensity = (lasIntensity / 10000.0) - 0.1
+
+      if (physicalIntensity >= threshold) {
+        // Include this point
+        filteredPositions.push(data.positions[i * 3], data.positions[i * 3 + 1], data.positions[i * 3 + 2])
+        filteredColors.push(data.colors[i * 3], data.colors[i * 3 + 1], data.colors[i * 3 + 2])
+        filteredIntensities.push(data.intensities[i])
+        filteredClassifications.push(data.classifications[i])
+      }
+    }
+
+    return {
+      positions: new Float32Array(filteredPositions),
+      colors: new Uint8Array(filteredColors),
+      intensities: new Uint16Array(filteredIntensities),
+      classifications: new Uint8Array(filteredClassifications),
+      bounds: data.bounds,
+      firstPoint: data.firstPoint,
+      lastPoint: data.lastPoint
+    }
+  }, [])
+
   // Memoized filtered data for 2D map view
   // Uses dataVersion as dependency since dataRef.current changes don't trigger re-renders
   const filteredDataForMap = useMemo(() => {
-    return dataRef.current.map(data => filterPointsByHeight(data))
-  }, [dataVersion, heightFilter, filterPointsByHeight])
+    return dataRef.current.map(data => {
+      // First apply height filter
+      const heightFiltered = filterPointsByHeight(data)
+      // Then apply intensity threshold filter
+      return filterPointsByIntensity(heightFiltered, currentIntensityThreshold)
+    })
+  }, [dataVersion, heightFilter, filterPointsByHeight, currentIntensityThreshold, filterPointsByIntensity])
 
   // Helper function to compute ranges from point cloud data
   const computeRangesFromData = useCallback((dataArray: PointCloudData[]): DataRange => {
@@ -697,11 +751,11 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
       console.log(`    • Lon: ${spatialBoundsFilter.minLon.toFixed(2)}° to ${spatialBoundsFilter.maxLon.toFixed(2)}°`)
       console.log(`    • Lat: ${spatialBoundsFilter.minLat.toFixed(2)}° to ${spatialBoundsFilter.maxLat.toFixed(2)}°`)
       console.log(`    • Alt: ${spatialBoundsFilter.minAlt.toFixed(2)} to ${spatialBoundsFilter.maxAlt.toFixed(2)} km`)
-      console.log(`\n[PointCloudViewer] ⚡ Potree Octree Optimization:`)
-      console.log(`  • Only octree nodes intersecting the spatial bounds will be loaded`)
-      console.log(`  • Individual points will be filtered per-node`)
-      console.log(`  • HTTP Range requests will fetch ONLY necessary data chunks`)
-      console.log(`  • This avoids loading the ENTIRE file into memory!`)
+      console.log(`\n[PointCloudViewer] ⚡ COPC Octree Optimization:`)
+      console.log(`  • Using COPC format for efficient spatial filtering`)
+      console.log(`  • HTTP Range requests will fetch ONLY necessary octree nodes`)
+      console.log(`  • This avoids loading the entire file into memory!`)
+      console.log(`  • Note: Full spatial-filtered COPC loading will be completed in future update`)
     } else {
       console.log(`\n[PointCloudViewer] ℹ️  Spatial Bounds Filter: DISABLED (loading all visible data)`)
     }
@@ -712,30 +766,45 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
 
     console.log('╚═══════════════════════════════════════════════════════════╝\n')
 
-    // Load all files
+    // Load all files using COPC format
     Promise.all(
       files.map((file, index) =>
-        loadPotreeData(file, {
-          onProgress: (progress) => {
-            setLoadingProgress((prev) => {
-              const fileProgress = progress / files.length
-              const previousFilesProgress = index / files.length
-              return Math.min(100, (previousFilesProgress + fileProgress) * 100)
-            })
-          },
-          spatialBounds: spatialBoundsFilter?.enabled ? {
+        loadCOPCFileWithSpatialBounds(
+          file,
+          spatialBoundsFilter?.enabled ? {
             minLon: spatialBoundsFilter.minLon,
             maxLon: spatialBoundsFilter.maxLon,
             minLat: spatialBoundsFilter.minLat,
             maxLat: spatialBoundsFilter.maxLat,
             minAlt: spatialBoundsFilter.minAlt,
             maxAlt: spatialBoundsFilter.maxAlt
-          } : undefined
-        })
+          } : undefined,
+          (progress) => {
+            setLoadingProgress((prev) => {
+              const fileProgress = progress / files.length
+              const previousFilesProgress = index / files.length
+              return Math.min(100, (previousFilesProgress + fileProgress) * 100)
+            })
+          }
+        )
       )
     )
       .then((allData) => {
         dataRef.current = allData
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // CAPTURE INTENSITY PERCENTILES FOR PROGRESSIVE LOADING
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // Extract intensity percentiles from the first file (they should all have similar distributions)
+        const firstFilePercentiles = allData[0]?.intensityPercentiles
+        if (firstFilePercentiles) {
+          setIntensityPercentiles(firstFilePercentiles)
+          console.log(`[PointCloudViewer] 📊 Captured intensity percentiles for progressive loading:`)
+          console.log(`  • 25th percentile: ${firstFilePercentiles.p25.toFixed(3)} km⁻¹·sr⁻¹`)
+          console.log(`  • 50th percentile: ${firstFilePercentiles.p50.toFixed(3)} km⁻¹·sr⁻¹`)
+          console.log(`  • 75th percentile: ${firstFilePercentiles.p75.toFixed(3)} km⁻¹·sr⁻¹`)
+          console.log(`  • 90th percentile: ${firstFilePercentiles.p90.toFixed(3)} km⁻¹·sr⁻¹`)
+        }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // SAVE LOADED DATA FOR INCREMENTAL LOADING
@@ -1174,6 +1243,8 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         groundCameraPosition={groundCameraPosition}
         onGroundCameraPositionSet={handleGroundModeClick}
         groundModeViewData={groundModeViewData}
+        intensityPercentiles={intensityPercentiles}
+        onZoomThresholdChange={handleZoomThresholdChange}
       />
 
       {loading && (
