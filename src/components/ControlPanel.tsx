@@ -48,7 +48,7 @@ export default function ControlPanel({
   onToggleGroundMode,
   groundCameraPosition
 }: ControlPanelProps) {
-  const colormaps: Colormap[] = ['viridis', 'plasma', 'turbo', 'coolwarm', 'jet', 'grayscale']
+  const colormaps: Colormap[] = ['viridis', 'plasma', 'turbo', 'coolwarm', 'jet', 'grayscale', 'calipso']
 
   return (
     <div className="panel control-panel">

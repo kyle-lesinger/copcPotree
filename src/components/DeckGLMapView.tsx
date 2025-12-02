@@ -180,8 +180,8 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
         }
       }
 
-      // Sample every ~50km along the track for smooth curves
-      const numSamples = Math.max(4, Math.ceil(trackLength / 50))
+      // Sample every ~20km along the track for more detailed rectangles
+      const numSamples = Math.max(4, Math.ceil(trackLength / 20))
 
       // Helper function to calculate track direction from a window of points
       // Uses 5 points centered on the middle point to determine local track bearing
@@ -286,11 +286,13 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
           return Math.abs(lon2 - lon1) > 180
         }
 
-        // Third pass: Create one continuous polygon by collecting all boundary points
-        // Instead of many small segments, we create a single smooth polygon
-        const innerEdge: Array<{ lat: number, lon: number }> = []
-        const outerEdge: Array<{ lat: number, lon: number }> = []
+        // Third pass: Create many small 4-point rectangular segments
+        // Each segment connects two consecutive sample points
+        const rectangles: Array<{ polygon: Array<{ lat: number, lon: number }> }> = []
         let skippedCount = 0
+
+        // Calculate boundary points for all samples first
+        const boundaryPoints: Array<{ inner: { lat: number, lon: number }, outer: { lat: number, lon: number } }> = []
 
         for (let i = 0; i < localBearings.length; i++) {
           const idx = localBearings[i].index
@@ -313,45 +315,50 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
             centerPoint.lat, centerPoint.lon, offsets.outer, perpendicularBearing
           )
 
-          // Check if this point's connections would cross the dateline
-          if (i > 0) {
-            const prevInner = innerEdge[innerEdge.length - 1]
-            const prevOuter = outerEdge[outerEdge.length - 1]
-            const crosses = crossesDateline(prevInner.lon, inner.lon) ||
-                           crossesDateline(prevOuter.lon, outer.lon)
+          boundaryPoints.push({ inner, outer })
+        }
 
-            if (crosses) {
-              skippedCount++
-              continue  // Skip points that would create dateline crossing
-            }
+        // Create rectangles from consecutive pairs of boundary points
+        for (let i = 0; i < boundaryPoints.length - 1; i++) {
+          const p1 = boundaryPoints[i]
+          const p2 = boundaryPoints[i + 1]
+
+          // Check if this segment would cross the dateline
+          const crosses = crossesDateline(p1.inner.lon, p2.inner.lon) ||
+                         crossesDateline(p1.outer.lon, p2.outer.lon)
+
+          if (crosses) {
+            skippedCount++
+            continue  // Skip segments that would create dateline crossing
           }
 
-          innerEdge.push(inner)
-          outerEdge.push(outer)
-        }
-
-        // Create one continuous polygon from inner and outer edges
-        // Order: inner edge (forward) → outer edge (backward) → close
-        if (innerEdge.length >= 2) {
+          // Create 4-point rectangle polygon
+          // Order: inner1 → inner2 → outer2 → outer1 → close
           const polygon = [
-            ...innerEdge,           // Inner edge from start to end
-            ...outerEdge.reverse()  // Outer edge from end to start (creates closed loop)
+            p1.inner,  // Inner edge start
+            p2.inner,  // Inner edge end
+            p2.outer,  // Outer edge end
+            p1.outer   // Outer edge start (closes back to inner1)
           ]
 
-          return [{ polygon }]  // Return single polygon
+          rectangles.push({ polygon })
         }
 
-        return []  // No valid polygon if insufficient points
+        if (skippedCount > 0) {
+          console.log(`[DeckGLMapView] Skipped ${skippedCount} rectangle segments due to dateline crossing`)
+        }
+
+        return rectangles
       }
 
-      // Create left and right continuous polygons using actual track data
+      // Create left and right segmented rectangles using actual track data
       const leftRectangles = createRectangle(true)  // Left side (90° left of track)
       const rightRectangles = createRectangle(false) // Right side (90° right of track)
 
-      // Combine left and right polygons into one array
+      // Combine left and right rectangles into one array
       const allRectangles = [...leftRectangles, ...rightRectangles]
 
-      console.log(`[DeckGLMapView] Ground mode: Created ${allRectangles.length} continuous guidance polygon(s) (${leftRectangles.length} left, ${rightRectangles.length} right)`)
+      console.log(`[DeckGLMapView] Ground mode: Created ${allRectangles.length} segmented rectangles (${leftRectangles.length} left, ${rightRectangles.length} right) along ${trackLength.toFixed(0)}km swath`)
 
       return allRectangles
     }
@@ -886,12 +893,12 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
         console.log(`[DeckGLMapView] Rendering completed polygon with ${completedPolygon.length} vertices`)
       }
 
-      // Add ground mode guidance rectangles (grey semi-transparent)
+      // Add ground mode guidance rectangles (yellow brick road)
       // Use a SINGLE PolygonLayer for all rectangles for better performance
       if (groundModeRectangles && groundModeRectangles.length > 0) {
         // Calculate opacity based on pulse animation
-        const baseFillOpacity = 100
-        const baseStrokeOpacity = 200
+        const baseFillOpacity = 120
+        const baseStrokeOpacity = 220
         const fillOpacity = pulseAnimation ? baseFillOpacity + 80 : baseFillOpacity  // Brighter when pulsing
         const strokeOpacity = pulseAnimation ? 255 : baseStrokeOpacity
 
@@ -904,8 +911,8 @@ const DeckGLMapView = forwardRef<DeckGLMapViewHandle, DeckGLMapViewProps>(
           id: 'ground-mode-rectangles',
           data: polygonData,
           getPolygon: (d: any) => d.polygon,
-          getFillColor: [128, 128, 128, fillOpacity], // Grey with transparency, brighter when pulsing
-          getLineColor: [80, 80, 80, strokeOpacity], // Darker grey border
+          getFillColor: [255, 215, 0, fillOpacity], // Yellow/gold with transparency, brighter when pulsing
+          getLineColor: [218, 165, 32, strokeOpacity], // Golden brown border
           getLineWidth: pulseAnimation ? 5 : 3, // Thicker when pulsing
           lineWidthUnits: 'pixels',
           filled: true,

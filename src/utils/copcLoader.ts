@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import * as LazPerfModule from 'laz-perf'
 import { applyColormap, Colormap } from './colormaps'
+import { LatLon, isPointInPolygon, calculatePolygonArea } from './aoiSelector'
 
 /**
  * Convert TAI time (seconds since 1993-01-01 00:00:00 UTC) to JavaScript Date
@@ -563,7 +564,8 @@ export async function loadCOPCFileWithSpatialBounds(
   url: string,
   spatialBounds?: COPCSpatialBounds,
   onProgress?: (progress: number) => void,
-  intensityThreshold?: number  // Only load points with intensity >= this value (for progressive loading)
+  intensityThreshold?: number,  // Only load points with intensity >= this value (for progressive loading)
+  aoiPolygon?: LatLon[] | null  // Optional AOI polygon for precise filtering (in addition to bounding box)
 ): Promise<PointCloudData & { intensityPercentiles?: IntensityPercentiles }> {
   console.log(`[copcLoader] 🚀 Loading COPC file with spatial bounds: ${url}`)
 
@@ -574,6 +576,15 @@ export async function loadCOPCFileWithSpatialBounds(
     console.log(`  Alt: ${spatialBounds.minAlt.toFixed(2)} to ${spatialBounds.maxAlt.toFixed(2)} km`)
   } else {
     console.log(`[copcLoader] ⚠️  No spatial bounds - will load entire file`)
+  }
+
+  // Check if AOI polygon filtering is enabled
+  const useAOIPolygon = aoiPolygon && aoiPolygon.length >= 3
+  if (useAOIPolygon) {
+    console.log(`[copcLoader] 🎯 AOI Polygon filtering ENABLED (${aoiPolygon!.length} vertices)`)
+    console.log(`[copcLoader] ℹ️  Points will be filtered by:`)
+    console.log(`  1. Bounding box (fast octree culling)`)
+    console.log(`  2. Polygon containment (precise per-point filtering)`)
   }
 
   // If no spatial bounds, use the simple loader
@@ -697,11 +708,59 @@ export async function loadCOPCFileWithSpatialBounds(
     return intersects
   }
 
-  // LOD Configuration: Limit octree depth to prevent loading millions of nodes
-  // Depth 0 = root (coarsest), higher depths = finer detail
-  // For CALIPSO satellite tracks: lower depth = faster loading, higher depth = more detail
-  const MAX_DEPTH = 5  // Only load nodes up to this depth level (depth 5-6 for balance)
-  const MAX_NODES = 500  // Maximum nodes for fast loading (500 = ~10 seconds, 1000 = ~20 seconds)
+  // LOD Configuration: Adaptive node limit based on spatial bounds size
+  // Calculate the spatial extent to determine if we're looking at a large or small area
+  const lonRange = spatialBounds.maxLon - spatialBounds.minLon
+  const latRange = spatialBounds.maxLat - spatialBounds.minLat
+  const altRange = spatialBounds.maxAlt - spatialBounds.minAlt
+
+  // Calculate approximate volume of the spatial bounds (in normalized units)
+  // For CALIPSO data spanning -180 to 180 lon, -82 to 82 lat, 0 to 40 alt:
+  // - Full dataset: 360° × 164° × 40km = ~2,361,600 cubic units
+  // - Small region: 10° × 10° × 5km = 500 cubic units
+
+  // When using AOI polygon, estimate the actual area coverage
+  // AOI polygons are typically much smaller than their bounding box
+  let boundsVolume = lonRange * latRange * altRange
+
+  if (useAOIPolygon) {
+    // When using polygon filtering, force high-detail settings
+    // The polygon will handle the actual filtering, so we want all nodes within the bbox
+    boundsVolume = 100  // Force small volume detection for maximum detail
+    console.log(`[copcLoader] 🎯 AOI polygon detected - forcing high-detail LOD`)
+    console.log(`[copcLoader] 📐 Bounding box: ${(lonRange * latRange * altRange).toFixed(0)} cubic units`)
+    console.log(`[copcLoader] 🔍 Polygon will filter points precisely - loading all nodes in bbox`)
+  }
+
+  // Define thresholds for adaptive node limits
+  // Large bounds (> 50,000 cubic units): 500 nodes - Fast loading for overview
+  // Medium bounds (5,000 - 50,000): 1000 nodes - Balanced detail
+  // Small bounds (< 5,000): 1500 nodes - High detail for focused areas
+  const VOLUME_THRESHOLD_LARGE = 50000
+  const VOLUME_THRESHOLD_SMALL = 5000
+
+  let MAX_NODES: number
+  let MAX_DEPTH: number
+
+  if (boundsVolume > VOLUME_THRESHOLD_LARGE) {
+    // Large area - prioritize speed
+    MAX_NODES = 500
+    MAX_DEPTH = 8
+    console.log(`[copcLoader] 📊 Large spatial bounds detected (${boundsVolume.toFixed(0)} cubic units)`)
+    console.log(`[copcLoader] ⚡ Using fast loading: ${MAX_NODES} nodes, depth ${MAX_DEPTH}`)
+  } else if (boundsVolume > VOLUME_THRESHOLD_SMALL) {
+    // Medium area - balanced
+    MAX_NODES = 1000
+    MAX_DEPTH = 10
+    console.log(`[copcLoader] 📊 Medium spatial bounds detected (${boundsVolume.toFixed(0)} cubic units)`)
+    console.log(`[copcLoader] ⚖️  Using balanced loading: ${MAX_NODES} nodes, depth ${MAX_DEPTH}`)
+  } else {
+    // Small area - prioritize detail
+    MAX_NODES = 1500
+    MAX_DEPTH = 12
+    console.log(`[copcLoader] 📊 Small spatial bounds detected (${boundsVolume.toFixed(0)} cubic units)`)
+    console.log(`[copcLoader] 🔍 Using high-detail loading: ${MAX_NODES} nodes, depth ${MAX_DEPTH}`)
+  }
 
   // Recursive function to traverse octree and collect nodes that intersect bounds
   const nodesToLoad: Array<[string, any]> = []
@@ -809,6 +868,7 @@ export async function loadCOPCFileWithSpatialBounds(
       let invalidCount = 0
       let outOfBoundsCount = 0
       let filteredCount = 0
+      let polygonFilteredCount = 0 // Track points filtered by AOI polygon specifically
 
       // Parse each point in this node
       for (let j = 0; j < nodePointCount; j++) {
@@ -837,12 +897,19 @@ export async function loadCOPCFileWithSpatialBounds(
           continue // Skip coordinates outside valid geographic range
         }
 
-        // Apply per-point spatial filter
+        // Apply per-point spatial filter (bounding box)
         if (lon < spatialBounds.minLon || lon > spatialBounds.maxLon ||
             lat < spatialBounds.minLat || lat > spatialBounds.maxLat ||
             alt < spatialBounds.minAlt || alt > spatialBounds.maxAlt) {
           filteredCount++
           continue // Skip points outside bounds
+        }
+
+        // Apply AOI polygon filter if enabled (precise filtering)
+        if (useAOIPolygon && !isPointInPolygon({ lat, lon }, aoiPolygon!)) {
+          filteredCount++
+          polygonFilteredCount++
+          continue // Skip points outside AOI polygon
         }
 
         // Get intensity for this point
@@ -872,7 +939,7 @@ export async function loadCOPCFileWithSpatialBounds(
       }
 
       // Log filtering statistics for this node
-      if (invalidCount > 0 || outOfBoundsCount > 0) {
+      if (invalidCount > 0 || outOfBoundsCount > 0 || filteredCount > 0) {
         console.warn(`[copcLoader] 📊 Node ${key} filtering summary:`)
         if (invalidCount > 0) {
           console.warn(`  • Invalid coordinates (NaN/Infinity): ${invalidCount}`)
@@ -882,6 +949,9 @@ export async function loadCOPCFileWithSpatialBounds(
         }
         if (filteredCount > 0) {
           console.warn(`  • Filtered by spatial bounds: ${filteredCount}`)
+          if (polygonFilteredCount > 0) {
+            console.warn(`    - Polygon filter: ${polygonFilteredCount} points`)
+          }
         }
         console.warn(`  • Valid points kept: ${totalPointsLoaded}`)
       }

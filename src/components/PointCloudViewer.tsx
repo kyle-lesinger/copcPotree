@@ -785,7 +785,9 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
               const previousFilesProgress = index / files.length
               return Math.min(100, (previousFilesProgress + fileProgress) * 100)
             })
-          }
+          },
+          undefined, // intensityThreshold
+          spatialBoundsFilter?.enabled && spatialBoundsFilter?.useAOIBounds ? aoiPolygon : null // Pass AOI polygon when using AOI bounds
         )
       )
     )
