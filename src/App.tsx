@@ -7,6 +7,7 @@ import DataInfo from './components/DataInfo'
 import { Colormap } from './utils/colormaps'
 import { LatLon } from './utils/aoiSelector'
 import { searchCalipsoFiles, FileSearchResult, getAvailableFileList } from './utils/fileSearch'
+import { TestConfig } from './components/TestConfigSelector'
 import './App.css'
 
 export type ColorMode = 'elevation' | 'intensity' | 'classification'
@@ -113,6 +114,9 @@ function App() {
   // Ground mode state
   const [isGroundModeActive, setIsGroundModeActive] = useState(false)
   const [groundCameraPosition, setGroundCameraPosition] = useState<{ lat: number, lon: number } | null>(null)
+
+  // Test configuration state
+  const [activeTestConfig, setActiveTestConfig] = useState<string | undefined>(undefined)
 
   const handleToggleDrawAOI = () => {
     setIsDrawingAOI(!isDrawingAOI)
@@ -302,6 +306,69 @@ function App() {
     setGroundCameraPosition({ lat, lon })
   }
 
+  const handleTestConfigSelect = (config: TestConfig) => {
+    console.log(`[App] 🧪 Applying test configuration: ${config.testId}`)
+
+    // Clear existing data first to force a fresh reload
+    console.log(`[App] 🗑️  Clearing existing data...`)
+    setSelectedFiles([])
+    setFoundFiles(null)
+
+    // Reset data range to force camera recenter on new data load
+    setGlobalDataRange({ elevation: null, intensity: null })
+    setDataRange({ elevation: null, intensity: null })
+
+    // Small delay to ensure React processes the state update
+    setTimeout(() => {
+      console.log(`[App] 🔄 Loading new configuration...`)
+
+      // Update point size
+      setPointSize(config.pointSize)
+
+      // Enable date range filter to trigger file search
+      // Using 2023-06-30 date range to match available files
+      setDateRangeFilter({
+        enabled: true,
+        startDate: '2023-06-30T16:00:00',
+        endDate: '2023-06-30T22:00:00'
+      })
+
+      // Set band type to 'all' to include both day and night files
+      setSelectedBand('all')
+
+      // Update spatial bounds filter with test config bounds
+      setSpatialBoundsFilter(prev => ({
+        ...prev,
+        enabled: true,  // Enable spatial filter
+        useUSBounds: false,
+        useAOIBounds: false,
+        minLat: config.bounds.minLat,
+        maxLat: config.bounds.maxLat,
+        minLon: config.bounds.minLon,
+        maxLon: config.bounds.maxLon,
+        minAlt: 0,
+        maxAlt: 40
+      }))
+
+      // Log the configuration parameters
+      console.log(`[App] 📁 Target file: ${config.filename}`)
+      console.log(`[App] 🎯 Max Depth: ${config.maxDepth}`)
+      console.log(`[App] 💰 Point Budget: ${config.pointBudget.toLocaleString()}`)
+      console.log(`[App] 🎨 LOD Strategy: ${config.lodStrategy}`)
+      console.log(`[App] 📏 LOD Threshold: ${config.lodThreshold}`)
+      console.log(`[App] ⚡ Expected FPS: ${config.expectedFps}`)
+
+      // Store active test config ID
+      setActiveTestConfig(config.testId)
+
+      // Trigger spatial filter apply to reload data
+      setSpatialFilterApplyCounter(c => c + 1)
+
+      // TODO: Implement maxDepth, pointBudget, lodStrategy in COPC loader
+      // These parameters should be passed to PointCloudViewer
+    }, 100)
+  }
+
   const handleGlobalDataRangeUpdate = useCallback((range: DataRange) => {
     // Set both global range (for validation) and current range (for display)
     setGlobalDataRange(range)
@@ -460,6 +527,8 @@ function App() {
         isGroundModeActive={isGroundModeActive}
         onToggleGroundMode={handleToggleGroundMode}
         groundCameraPosition={groundCameraPosition}
+        onTestConfigSelect={handleTestConfigSelect}
+        currentTestId={activeTestConfig}
       />
 
       <DataInfo dataRange={dataRange} />

@@ -737,7 +737,7 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
 
     // Log file loading with filter context
     console.log('╔═══════════════════════════════════════════════════════════╗')
-    console.log('║        📂 LOADING POTREE FILES WITH ACTIVE FILTERS        ║')
+    console.log('║         📂 LOADING COPC FILES WITH ACTIVE FILTERS         ║')
     console.log('╚═══════════════════════════════════════════════════════════╝')
     console.log(`[PointCloudViewer] 📁 Loading ${files.length} file(s):`)
     files.forEach((file, idx) => {
@@ -920,11 +920,18 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
 
         // Check if we have a valid camera state from switching from 3D view
         // If so, skip auto-zoom calculation to preserve the camera state
-        if (viewMode === '2d' && last2DMapStateRef.current) {
+        // However, if this is a fresh data load (files array changed), always recenter
+        const shouldRecenter = files.length > 0 // Fresh load if we have files
+        if (viewMode === '2d' && last2DMapStateRef.current && !shouldRecenter) {
           console.log(`[PointCloudViewer] 📍 Skipping auto-zoom - using camera state from 3D→2D switch: center (${last2DMapStateRef.current.center[0].toFixed(4)}, ${last2DMapStateRef.current.center[1].toFixed(4)}), zoom ${last2DMapStateRef.current.zoom.toFixed(4)}`)
           // Keep the current mapCenter and mapZoom that were set during view switch
           setInitialCameraDistance(calculatedDistance)
         } else {
+          // Clear last map state to force recenter on new data
+          if (shouldRecenter) {
+            last2DMapStateRef.current = null
+            console.log(`[PointCloudViewer] 🎯 Forcing camera recenter for new data load`)
+          }
           // Calculate appropriate zoom level to fit the data extent
           // MapLibre zoom levels: zoom 0 shows ~360° longitude, each level halves the view
           // We want to fit the larger extent (with some padding)
@@ -957,8 +964,8 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         setStats({ points: totalPoints, files: allData.length })
       })
       .catch((err) => {
-        console.error('Error loading Potree files:', err)
-        setError(err.message || 'Failed to load Potree files')
+        console.error('Error loading COPC files:', err)
+        setError(err.message || 'Failed to load COPC files')
         setLoading(false)
       })
   }, [files, pointSize, onGlobalDataRangeUpdate, onDataRangeUpdate, viewMode, colorMode, colormap, spatialBoundsFilter])
