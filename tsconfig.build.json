@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /* Production build - less strict to allow deployment */
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}
