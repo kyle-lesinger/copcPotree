@@ -1,0 +1,12 @@
+output/*
+potree_data/*
+public/*
+!public/laz-perf.wasm
+node_modules
+.claude/*
+data/raw
+data/converted_las
+
+# Lock files - using yarn.lock only
+package-lock.json
+
