@@ -6,7 +6,7 @@ import ControlsInfo from './components/ControlsInfo'
 import DataInfo from './components/DataInfo'
 import { Colormap } from './utils/colormaps'
 import { LatLon } from './utils/aoiSelector'
-import { searchCalipsoFiles, FileSearchResult, getAvailableFileList } from './utils/fileSearch'
+import { searchCalipsoFiles, FileSearchResult, getAvailableFileList, FileMode } from './utils/fileSearch'
 import { TestConfig } from './components/TestConfigSelector'
 import './App.css'
 
@@ -117,6 +117,8 @@ function App() {
 
   // Test configuration state
   const [activeTestConfig, setActiveTestConfig] = useState<string | undefined>(undefined)
+  const [testConfigMaxDepth, setTestConfigMaxDepth] = useState<number | undefined>(undefined)
+  const [testConfigMaxNodes, setTestConfigMaxNodes] = useState<number | undefined>(undefined)
 
   const handleToggleDrawAOI = () => {
     setIsDrawingAOI(!isDrawingAOI)
@@ -358,14 +360,19 @@ function App() {
       console.log(`[App] 📏 LOD Threshold: ${config.lodThreshold}`)
       console.log(`[App] ⚡ Expected FPS: ${config.expectedFps}`)
 
-      // Store active test config ID
+      // Store active test config ID and parameters
       setActiveTestConfig(config.testId)
+      setTestConfigMaxDepth(config.maxDepth)
+
+      // Convert pointBudget to maxNodes (rough estimate: assume avg 30k points per node)
+      const avgPointsPerNode = 30000
+      const estimatedMaxNodes = Math.ceil(config.pointBudget / avgPointsPerNode)
+      setTestConfigMaxNodes(estimatedMaxNodes)
+
+      console.log(`[App] 🔢 Calculated maxNodes: ${estimatedMaxNodes} (from pointBudget: ${config.pointBudget.toLocaleString()})`)
 
       // Trigger spatial filter apply to reload data
       setSpatialFilterApplyCounter(c => c + 1)
-
-      // TODO: Implement maxDepth, pointBudget, lodStrategy in COPC loader
-      // These parameters should be passed to PointCloudViewer
     }, 100)
   }
 
@@ -406,12 +413,14 @@ function App() {
         // Search for files using the file search utility
         // Uses the configured file list from fileSearch.ts
         // In production, replace with API endpoint or S3 listing
+        const fileMode: FileMode = 'tiled' // Use tiled mode by default (recommended)
         const result = await searchCalipsoFiles(
           selectedBand,
           dateRangeFilter.startDate,
           dateRangeFilter.endDate,
           {
-            fileList: getAvailableFileList() // Update file list in fileSearch.ts
+            fileList: getAvailableFileList(fileMode),
+            fileMode
           }
         )
 
@@ -492,6 +501,8 @@ function App() {
         isGroundModeActive={isGroundModeActive}
         groundCameraPosition={groundCameraPosition}
         onGroundCameraPositionSet={handleGroundCameraPositionSet}
+        testConfigMaxDepth={testConfigMaxDepth}
+        testConfigMaxNodes={testConfigMaxNodes}
       />
 
       <FilterPanel

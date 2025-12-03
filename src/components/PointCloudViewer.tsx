@@ -35,9 +35,11 @@ interface PointCloudViewerProps {
   isGroundModeActive?: boolean
   groundCameraPosition?: { lat: number, lon: number } | null
   onGroundCameraPositionSet?: (lat: number, lon: number) => void
+  testConfigMaxDepth?: number  // Optional test configuration override
+  testConfigMaxNodes?: number  // Optional test configuration override
 }
 
-export default function PointCloudViewer({ files, colorMode, colormap, pointSize, viewMode, onGlobalDataRangeUpdate, onDataRangeUpdate, aoiPolygon, showScatterPlotTrigger, onAOIDataReady, onPolygonUpdate, isDrawingAOI, heightFilter, spatialBoundsFilter, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet }: PointCloudViewerProps) {
+export default function PointCloudViewer({ files, colorMode, colormap, pointSize, viewMode, onGlobalDataRangeUpdate, onDataRangeUpdate, aoiPolygon, showScatterPlotTrigger, onAOIDataReady, onPolygonUpdate, isDrawingAOI, heightFilter, spatialBoundsFilter, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet, testConfigMaxDepth, testConfigMaxNodes }: PointCloudViewerProps) {
   // const globeRef = useRef<GlobeViewerHandle>(null) // Removed - 2D only
   const deckMapRef = useRef<DeckGLMapViewHandle>(null)
   const pointCloudsRef = useRef<THREE.Points[]>([]) // For 2D mode only
@@ -787,11 +789,20 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
             })
           },
           undefined, // intensityThreshold
-          spatialBoundsFilter?.enabled && spatialBoundsFilter?.useAOIBounds ? aoiPolygon : null // Pass AOI polygon when using AOI bounds
+          spatialBoundsFilter?.enabled && spatialBoundsFilter?.useAOIBounds ? aoiPolygon : null, // Pass AOI polygon when using AOI bounds
+          testConfigMaxDepth, // Test config max depth override
+          testConfigMaxNodes  // Test config max nodes override
         )
       )
     )
-      .then((allData) => {
+      .then((loadedData) => {
+        // Filter out empty results (tiles with no points)
+        const allData = loadedData.filter(data =>
+          data && data.positions && data.positions.length > 0
+        )
+
+        console.log(`[PointCloudViewer] 📊 Filtered results: ${allData.length} of ${loadedData.length} tiles have data`)
+
         dataRef.current = allData
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -832,21 +843,31 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         let maxIntPhysical = -Infinity
 
         allData.forEach((data) => {
+          // Skip if data is invalid or empty
+          if (!data || !data.positions || !data.intensities) {
+            console.warn('[PointCloudViewer] ⚠️  Skipping invalid data entry:', data)
+            return
+          }
+
           // Elevation range from positions (Z coordinate = altitude in km)
-          for (let i = 0; i < data.positions.length; i += 3) {
-            const alt = data.positions[i + 2]
-            minElev = Math.min(minElev, alt)
-            maxElev = Math.max(maxElev, alt)
+          if (data.positions.length > 0) {
+            for (let i = 0; i < data.positions.length; i += 3) {
+              const alt = data.positions[i + 2]
+              minElev = Math.min(minElev, alt)
+              maxElev = Math.max(maxElev, alt)
+            }
           }
 
           // Intensity range - convert from LAS encoding to physical units
           // CALIPSO encoding: intensity = (physical + 0.1) * 10000
           // Physical units: km⁻¹·sr⁻¹
-          for (let i = 0; i < data.intensities.length; i++) {
-            const lasIntensity = data.intensities[i]
-            const physical = (lasIntensity / 10000.0) - 0.1
-            minIntPhysical = Math.min(minIntPhysical, physical)
-            maxIntPhysical = Math.max(maxIntPhysical, physical)
+          if (data.intensities.length > 0) {
+            for (let i = 0; i < data.intensities.length; i++) {
+              const lasIntensity = data.intensities[i]
+              const physical = (lasIntensity / 10000.0) - 0.1
+              minIntPhysical = Math.min(minIntPhysical, physical)
+              maxIntPhysical = Math.max(maxIntPhysical, physical)
+            }
           }
         })
 

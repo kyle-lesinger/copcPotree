@@ -565,7 +565,9 @@ export async function loadCOPCFileWithSpatialBounds(
   spatialBounds?: COPCSpatialBounds,
   onProgress?: (progress: number) => void,
   intensityThreshold?: number,  // Only load points with intensity >= this value (for progressive loading)
-  aoiPolygon?: LatLon[] | null  // Optional AOI polygon for precise filtering (in addition to bounding box)
+  aoiPolygon?: LatLon[] | null,  // Optional AOI polygon for precise filtering (in addition to bounding box)
+  maxDepth?: number,  // Optional max octree depth override (from test config)
+  maxNodes?: number   // Optional max nodes override (from test config)
 ): Promise<PointCloudData & { intensityPercentiles?: IntensityPercentiles }> {
   console.log(`[copcLoader] 🚀 Loading COPC file with spatial bounds: ${url}`)
 
@@ -625,13 +627,108 @@ export async function loadCOPCFileWithSpatialBounds(
     spacing: copc.info.spacing
   })
 
+  // Debug: Log copc.header properties to understand what's available
+  console.log(`[copcLoader] 🔍 DEBUG: copc.header properties:`, Object.keys(copc.header))
+  console.log(`[copcLoader] 🔍 DEBUG: copc.header.min:`, copc.header.min)
+  console.log(`[copcLoader] 🔍 DEBUG: copc.header.max:`, copc.header.max)
+  console.log(`[copcLoader] 🔍 DEBUG: copc.header.scale:`, copc.header.scale)
+  console.log(`[copcLoader] 🔍 DEBUG: copc.header.offset:`, copc.header.offset)
+  console.log(`[copcLoader] 🔍 DEBUG: copc.info.cube (octree root bounds):`, copc.info.cube)
+  console.log(`[copcLoader] 🔍 DEBUG: copc.info.spacing:`, copc.info.spacing)
+
+  // CRITICAL FIX: Validate and reconstruct cube bounds if corrupted
+  // The cube should contain [minX, minY, minZ, maxX, maxY, maxZ] in geographic coordinates
+  // If coordinates are outside valid ranges, the COPC conversion was corrupted
+  const cube = copc.info.cube
+  const cubeMinLon = cube[0]
+  const cubeMaxLon = cube[3]
+  const cubeMinLat = cube[1]
+  const cubeMaxLat = cube[4]
+
+  const cubeValid = (
+    cubeMinLon >= -180 && cubeMaxLon <= 180 &&
+    cubeMinLat >= -90 && cubeMaxLat <= 90 &&
+    cubeMinLon < cubeMaxLon &&
+    cubeMinLat < cubeMaxLat
+  )
+
+  if (!cubeValid) {
+    console.warn(`[copcLoader] 🚨 CORRUPTED OCTREE CUBE DETECTED!`)
+    console.warn(`[copcLoader] 📊 Invalid cube bounds:`, {
+      lon: `${cubeMinLon.toFixed(2)}° to ${cubeMaxLon.toFixed(2)}°`,
+      lat: `${cubeMinLat.toFixed(2)}° to ${cubeMaxLat.toFixed(2)}°`
+    })
+    console.warn(`[copcLoader] 🔧 Reconstructing cube from header.min/max...`)
+
+    // Reconstruct valid cube bounds from header
+    // For CALIPSO track data spanning globe, use actual data bounds directly
+    // The octree node calculation will still work with non-cubic bounds
+    copc.info.cube = [
+      copc.header.min[0],  // minX (lon)
+      copc.header.min[1],  // minY (lat)
+      copc.header.min[2],  // minZ (alt)
+      copc.header.max[0],  // maxX (lon)
+      copc.header.max[1],  // maxY (lat)
+      copc.header.max[2]   // maxZ (alt)
+    ]
+
+    console.log(`[copcLoader] ✅ Reconstructed cube bounds:`, {
+      lon: `${copc.info.cube[0].toFixed(2)}° to ${copc.info.cube[3].toFixed(2)}°`,
+      lat: `${copc.info.cube[1].toFixed(2)}° to ${copc.info.cube[4].toFixed(2)}°`,
+      alt: `${copc.info.cube[2].toFixed(3)} to ${copc.info.cube[5].toFixed(3)} km`
+    })
+    console.log(`[copcLoader] 💡 This fixes corrupted octree metadata from CRS reprojection`)
+  } else {
+    console.log(`[copcLoader] ✅ Cube bounds validation passed - octree metadata is valid`)
+  }
+
+  // ROOT NODE INTERSECTION CHECK
+  // Check if the root node (entire file bounds) intersects with the requested spatial bounds
+  // This allows us to skip loading tiles that don't overlap with the area of interest
+  if (spatialBounds) {
+    const rootMinLon = copc.info.cube[0]
+    const rootMaxLon = copc.info.cube[3]
+    const rootMinLat = copc.info.cube[1]
+    const rootMaxLat = copc.info.cube[4]
+
+    // Check for bounding box intersection
+    const intersects = !(
+      rootMaxLon < spatialBounds.minLon ||  // Root is entirely west of bounds
+      rootMinLon > spatialBounds.maxLon ||  // Root is entirely east of bounds
+      rootMaxLat < spatialBounds.minLat ||  // Root is entirely south of bounds
+      rootMinLat > spatialBounds.maxLat     // Root is entirely north of bounds
+    )
+
+    if (!intersects) {
+      console.log(`[copcLoader] ⏭️  SKIPPING FILE - Root node does not intersect with spatial bounds`)
+      console.log(`[copcLoader] 📍 File bounds: Lon ${rootMinLon.toFixed(2)}° to ${rootMaxLon.toFixed(2)}°, Lat ${rootMinLat.toFixed(2)}° to ${rootMaxLat.toFixed(2)}°`)
+      console.log(`[copcLoader] 🎯 Filter bounds: Lon ${spatialBounds.minLon.toFixed(2)}° to ${spatialBounds.maxLon.toFixed(2)}°, Lat ${spatialBounds.minLat.toFixed(2)}° to ${spatialBounds.maxLat.toFixed(2)}°`)
+
+      // Return empty point cloud data
+      return {
+        points: [],
+        colors: [],
+        intensities: [],
+        classifications: [],
+        minIntensity: 0,
+        maxIntensity: 0
+      }
+    }
+
+    console.log(`[copcLoader] ✅ Root node intersection check passed - file overlaps with spatial bounds`)
+    console.log(`[copcLoader] 📍 File bounds: Lon ${rootMinLon.toFixed(2)}° to ${rootMaxLon.toFixed(2)}°, Lat ${rootMinLat.toFixed(2)}° to ${rootMaxLat.toFixed(2)}°`)
+  }
+
   // Log file bounding box in geographic coordinates
-  const fileMinLon = copc.header.min[0] * copc.header.scale[0] + copc.header.offset[0]
-  const fileMaxLon = copc.header.max[0] * copc.header.scale[0] + copc.header.offset[0]
-  const fileMinLat = copc.header.min[1] * copc.header.scale[1] + copc.header.offset[1]
-  const fileMaxLat = copc.header.max[1] * copc.header.scale[1] + copc.header.offset[1]
-  const fileMinAlt = copc.header.min[2] * copc.header.scale[2] + copc.header.offset[2]
-  const fileMaxAlt = copc.header.max[2] * copc.header.scale[2] + copc.header.offset[2]
+  // IMPORTANT: copc.header.min/max are ALREADY in geographic coordinates!
+  // They are stored as Float64 values in the LAZ header (bytes 179-226)
+  // DO NOT apply scale/offset to these values - they are not integer coordinates
+  const fileMinLon = copc.header.min[0]
+  const fileMaxLon = copc.header.max[0]
+  const fileMinLat = copc.header.min[1]
+  const fileMaxLat = copc.header.max[1]
+  const fileMinAlt = copc.header.min[2]
+  const fileMaxAlt = copc.header.max[2]
 
   console.log(`[copcLoader] 📊 File Geographic Bounds:`)
   console.log(`  Lon: ${fileMinLon.toFixed(2)}° to ${fileMaxLon.toFixed(2)}°`)
@@ -699,6 +796,9 @@ export async function loadCOPCFileWithSpatialBounds(
     const nodeSize = spacing / Math.pow(2, depth)
 
     // Calculate node bounds in octree coordinate space
+    // IMPORTANT: copc.info.cube is ALREADY in geographic coordinates!
+    // Unlike point coordinates which need scaling, the octree cube bounds
+    // from the COPC VLR are pre-computed geographic coordinates
     const nodeMin = [
       cube[0] + node.x * nodeSize,
       cube[1] + node.y * nodeSize,
@@ -710,13 +810,13 @@ export async function loadCOPCFileWithSpatialBounds(
       nodeMin[2] + nodeSize
     ]
 
-    // Convert to geographic coordinates using scale/offset
-    const minLon = nodeMin[0] * copc.header.scale[0] + copc.header.offset[0]
-    const maxLon = nodeMax[0] * copc.header.scale[0] + copc.header.offset[0]
-    const minLat = nodeMin[1] * copc.header.scale[1] + copc.header.offset[1]
-    const maxLat = nodeMax[1] * copc.header.scale[1] + copc.header.offset[1]
-    const minAlt = nodeMin[2] * copc.header.scale[2] + copc.header.offset[2]
-    const maxAlt = nodeMax[2] * copc.header.scale[2] + copc.header.offset[2]
+    // Node bounds are ALREADY in geographic coordinates - don't apply scale/offset!
+    const minLon = nodeMin[0]
+    const maxLon = nodeMax[0]
+    const minLat = nodeMin[1]
+    const maxLat = nodeMax[1]
+    const minAlt = nodeMin[2]
+    const maxAlt = nodeMax[2]
 
     // Check intersection with spatial bounds
     const intersects = !(
@@ -727,6 +827,17 @@ export async function loadCOPCFileWithSpatialBounds(
       maxAlt < spatialBounds.minAlt ||
       minAlt > spatialBounds.maxAlt
     )
+
+    // Debug: Log first 3 node bounds for debugging
+    if (node.key === '0-0-0-0' || node.key === '1-0-0-0' || node.key === '1-1-0-0') {
+      console.log(`[copcLoader] 🔍 DEBUG Node ${node.key}:`)
+      console.log(`  cube:`, cube)
+      console.log(`  nodeSize:`, nodeSize)
+      console.log(`  nodeMin (before scale):`, nodeMin)
+      console.log(`  nodeMax (before scale):`, nodeMax)
+      console.log(`  Geographic bounds: Lon ${minLon.toFixed(2)}° to ${maxLon.toFixed(2)}°, Lat ${minLat.toFixed(2)}° to ${maxLat.toFixed(2)}°`)
+      console.log(`  Intersects filter:`, intersects)
+    }
 
     return intersects
   }
@@ -765,7 +876,14 @@ export async function loadCOPCFileWithSpatialBounds(
   let MAX_NODES: number
   let MAX_DEPTH: number
 
-  if (boundsVolume > VOLUME_THRESHOLD_LARGE) {
+  // Check if test configuration overrides are provided
+  if (maxDepth !== undefined && maxNodes !== undefined) {
+    MAX_NODES = maxNodes
+    MAX_DEPTH = maxDepth
+    console.log(`[copcLoader] 🧪 Using TEST CONFIGURATION overrides:`)
+    console.log(`[copcLoader]   • MAX_NODES: ${MAX_NODES}`)
+    console.log(`[copcLoader]   • MAX_DEPTH: ${MAX_DEPTH}`)
+  } else if (boundsVolume > VOLUME_THRESHOLD_LARGE) {
     // Large area - prioritize speed
     MAX_NODES = 500
     MAX_DEPTH = 8
