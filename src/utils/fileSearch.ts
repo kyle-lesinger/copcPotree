@@ -275,7 +275,7 @@ export function getAvailableFileList(fileMode: FileMode = 'tiled'): string[] {
 
   if (fileMode === 'single') {
     // DEPRECATED: Single files have corrupted octree cube bounds for globe-spanning data
-    const dataDirectory = '/potree_data'
+    const dataDirectory = '/data/final/tiled'
     return [
       // CALIPSO Level 1 data from 2023-06-30
       `${dataDirectory}/CAL_LID_L1-Standard-V4-51.2023-06-30T16-44-43ZD.copc.laz`, // Day band
@@ -288,13 +288,18 @@ export function getAvailableFileList(fileMode: FileMode = 'tiled'): string[] {
     ]
   } else {
     // RECOMMENDED: Tiled files with valid octree cube bounds (4 latitude tiles per timestamp)
-    const dataDirectory = '/potree_data/tiled'
+    const dataDirectory = '/data/final/tiled'
     const tiles = ['south', 'south_mid', 'north_mid', 'north'] // 4 latitude tiles
 
     // For each timestamp, we have 4 tiles (south, south_mid, north_mid, north)
     const basenames = [
       'CAL_LID_L1-Standard-V4-51.2023-06-30T16-44-43ZD', // Day band
-      // Add more timestamps as they become available
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T17-37-28ZN', // Night band
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T18-23-08ZD', // Day band
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T19-15-53ZN', // Night band
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T20-01-33ZD', // Day band
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T20-54-18ZN', // Night band
+      'CAL_LID_L1-Standard-V4-51.2023-06-30T21-39-53ZD', // Day band
     ]
 
     const tiledFiles: string[] = []

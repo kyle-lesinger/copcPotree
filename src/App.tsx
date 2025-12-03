@@ -50,9 +50,10 @@ function App() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [foundFiles, setFoundFiles] = useState<FileSearchResult | null>(null)
   const [spatialFilterApplyCounter, setSpatialFilterApplyCounter] = useState(0)
+  const [fileSearchTrigger, setFileSearchTrigger] = useState(0) // Counter to force file search re-run
 
   const [colorMode, setColorMode] = useState<ColorMode>('intensity')
-  const [colormap, setColormap] = useState<Colormap>('plasma')
+  const [colormap, setColormap] = useState<Colormap>('calipso')
   const [pointSize, setPointSize] = useState(2.0)
   const [viewMode] = useState<ViewMode>('2d') // Fixed to 2D mode only
 
@@ -327,17 +328,6 @@ function App() {
       // Update point size
       setPointSize(config.pointSize)
 
-      // Enable date range filter to trigger file search
-      // Using 2023-06-30 date range to match available files
-      setDateRangeFilter({
-        enabled: true,
-        startDate: '2023-06-30T16:00:00',
-        endDate: '2023-06-30T22:00:00'
-      })
-
-      // Set band type to 'all' to include both day and night files
-      setSelectedBand('all')
-
       // Update spatial bounds filter with test config bounds
       setSpatialBoundsFilter(prev => ({
         ...prev,
@@ -371,8 +361,28 @@ function App() {
 
       console.log(`[App] 🔢 Calculated maxNodes: ${estimatedMaxNodes} (from pointBudget: ${config.pointBudget.toLocaleString()})`)
 
-      // Trigger spatial filter apply to reload data
-      setSpatialFilterApplyCounter(c => c + 1)
+      // Load only the specific test file(s) specified in the config
+      // For tiled mode, this will be 4 tiles for the single timestamp
+      const availableFiles = getAvailableFileList()
+      const baseFilename = config.filename.replace('.copc.laz', '')
+
+      // Filter for files matching this specific timestamp
+      // In tiled mode: get all 4 tiles for this timestamp
+      // In single mode: get just the one file
+      const testFiles = availableFiles.filter(file => file.includes(baseFilename))
+
+      console.log(`[App] 🎯 Loading ${testFiles.length} file(s) for test:`)
+      testFiles.forEach((file, idx) => {
+        console.log(`  ${idx + 1}. ${file.split('/').pop()}`)
+      })
+
+      // Directly set the files to load (bypassing date range filter)
+      setSelectedFiles(testFiles)
+
+      // Trigger spatial filter apply to process these files
+      setTimeout(() => {
+        setSpatialFilterApplyCounter(c => c + 1)
+      }, 100)
     }, 100)
   }
 
@@ -440,7 +450,7 @@ function App() {
     }
 
     performSearch()
-  }, [selectedBand, dateRangeFilter.enabled, dateRangeFilter.startDate, dateRangeFilter.endDate])
+  }, [selectedBand, dateRangeFilter.enabled, dateRangeFilter.startDate, dateRangeFilter.endDate, fileSearchTrigger])
 
   // Load files ONLY when spatial bounds filter is explicitly applied (counter increments)
   // Clear files when spatial bounds filter is disabled

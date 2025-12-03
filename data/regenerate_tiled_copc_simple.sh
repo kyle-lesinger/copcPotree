@@ -8,7 +8,7 @@ set -e
 
 # Configuration
 INPUT_DIR="/Users/klesinger/github/deckGL/callipsoPotree/data/converted_las"
-OUTPUT_DIR="/Users/klesinger/github/deckGL/callipsoPotree/public/data/tiled"
+OUTPUT_DIR="/Users/klesinger/github/deckGL/callipsoPotree/data/final/tiled"
 PDAL_BIN="/opt/anaconda3/envs/pdal/bin/pdal"
 
 # Activate conda environment

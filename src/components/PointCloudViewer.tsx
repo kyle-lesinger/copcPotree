@@ -79,7 +79,7 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
   } | null>(null)
   const [currentIntensityThreshold, setCurrentIntensityThreshold] = useState<number | undefined>(undefined)
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0])
-  const [mapZoom, setMapZoom] = useState<number>(5)
+  const [mapZoom, setMapZoom] = useState<number>(6)
   const [initialCameraDistance, setInitialCameraDistance] = useState<number>(2.5) // Calculated based on data extent
   const [dataLoaded, setDataLoaded] = useState(false)
   const [dataVersion, setDataVersion] = useState(0) // Increment to trigger DeckGLMapView update
@@ -939,37 +939,17 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         // Use fixed distance of 1.8 for best detail (decimation 1:2, ~2.3M points)
         const calculatedDistance = 1.8
 
-        // Check if we have a valid camera state from switching from 3D view
-        // If so, skip auto-zoom calculation to preserve the camera state
-        // However, if this is a fresh data load (files array changed), always recenter
-        const shouldRecenter = files.length > 0 // Fresh load if we have files
-        if (viewMode === '2d' && last2DMapStateRef.current && !shouldRecenter) {
-          console.log(`[PointCloudViewer] 📍 Skipping auto-zoom - using camera state from 3D→2D switch: center (${last2DMapStateRef.current.center[0].toFixed(4)}, ${last2DMapStateRef.current.center[1].toFixed(4)}), zoom ${last2DMapStateRef.current.zoom.toFixed(4)}`)
-          // Keep the current mapCenter and mapZoom that were set during view switch
-          setInitialCameraDistance(calculatedDistance)
-        } else {
-          // Clear last map state to force recenter on new data
-          if (shouldRecenter) {
-            last2DMapStateRef.current = null
-            console.log(`[PointCloudViewer] 🎯 Forcing camera recenter for new data load`)
-          }
-          // Calculate appropriate zoom level to fit the data extent
-          // MapLibre zoom levels: zoom 0 shows ~360° longitude, each level halves the view
-          // We want to fit the larger extent (with some padding)
-          const maxExtent = Math.max(extentLng, extentLat)
-          const paddingFactor = 1.5 // Add 50% padding around the data
-          const paddedExtent = maxExtent * paddingFactor
+        // Always recenter and zoom to level 9 when data is loaded
+        // Clear last map state to force recenter
+        last2DMapStateRef.current = null
+        const dataZoom = 9
 
-          // Calculate zoom: log2(360 / extent) gives zoom for longitude at equator
-          // Clamp between 2 (world view) and 12 (close up)
-          const calculatedZoom = Math.max(2, Math.min(12, Math.log2(360 / paddedExtent)))
+        console.log(`[PointCloudViewer] 🎯 Data loaded - centering at (${centerLng.toFixed(4)}, ${centerLat.toFixed(4)}), zoom ${dataZoom}`)
+        console.log(`[PointCloudViewer] Data extent: ${extentLng.toFixed(2)}° lng × ${extentLat.toFixed(2)}° lat`)
 
-          console.log(`[PointCloudViewer] Data extent: ${extentLng.toFixed(2)}° lng × ${extentLat.toFixed(2)}° lat, calculated zoom: ${calculatedZoom.toFixed(2)}`)
-
-          setMapCenter([centerLng, centerLat])
-          setMapZoom(calculatedZoom)
-          setInitialCameraDistance(calculatedDistance)
-        }
+        setMapCenter([centerLng, centerLat])
+        setMapZoom(dataZoom)
+        setInitialCameraDistance(calculatedDistance)
 
         // For 2D mode: Data is already stored in dataRef, just update loading states
         console.log(`[PointCloudViewer] 📍 2D mode: Data loaded, skipping THREE.js geometry creation`)
@@ -989,7 +969,7 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         setError(err.message || 'Failed to load COPC files')
         setLoading(false)
       })
-  }, [files, pointSize, onGlobalDataRangeUpdate, onDataRangeUpdate, viewMode, colorMode, colormap, spatialBoundsFilter])
+  }, [files, pointSize, onGlobalDataRangeUpdate, onDataRangeUpdate, viewMode, colorMode, colormap, spatialBoundsFilter, testConfigMaxDepth, testConfigMaxNodes])
 
   // Update LOD managers when spatial bounds filter changes
   useEffect(() => {
@@ -1281,7 +1261,7 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
         <div className="loading-overlay">
           <div className="loading-spinner" />
           <div className="loading-text">
-            Loading Potree files... {Math.round(loadingProgress)}%
+            Loading COPC tiles... {Math.round(loadingProgress)}%
           </div>
         </div>
       )}

@@ -6,6 +6,11 @@
   margin-bottom: 12px;
 }
 
+.test-config-dropdown select {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
 .test-config-panel-inline {
   margin-top: 12px;
   padding: 12px;
