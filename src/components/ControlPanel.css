@@ -189,4 +189,110 @@
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  z-index: 100; /* Ensure dropdown overlays content below */
+}
+
+.loading-timer {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.timer-loading {
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+.timer-complete {
+  color: #4CAF50;
+  font-weight: 500;
+}
+
+/* Inline Data Info Section */
+.data-info-section-inline {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.data-info-section-inline h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.inline-info-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.inline-info-text strong {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.inline-info-text.text-muted {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+/* Inline Data Range Section */
+.data-range-section-inline {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.data-range-section-inline h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Inline Controls Info Section */
+.controls-info-section-inline {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.controls-info-section-inline h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.controls-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.controls-list li {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.controls-list li:last-child {
+  margin-bottom: 0;
+}
+
+.controls-list kbd {
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: monospace;
+  color: rgba(255, 255, 255, 0.9);
 }

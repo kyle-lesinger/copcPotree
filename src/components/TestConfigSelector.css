@@ -4,11 +4,15 @@
 
 .test-config-dropdown {
   margin-bottom: 12px;
+  position: relative;
+  z-index: 150; /* Ensure dropdown overlays content below */
 }
 
 .test-config-dropdown select {
   max-height: 400px;
   overflow-y: auto;
+  position: relative;
+  z-index: 150;
 }
 
 .test-config-panel-inline {

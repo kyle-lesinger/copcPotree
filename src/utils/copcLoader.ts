@@ -784,30 +784,43 @@ export async function loadCOPCFileWithSpatialBounds(
       return true  // Accept all nodes, filter points instead
     }
 
-    // Get node bounds in scaled coordinates
+    // Get octree cube bounds (entire data extent)
     const cube = copc.info.cube
-    const spacing = copc.info.spacing
+
+    // Parse node key to get depth and x,y,z indices
+    const [depthStr] = node.key.split('-')
+    const depth = parseInt(depthStr)
 
     // Calculate node size based on depth
     // OCTREE DEPTH: Depth 0 is root (biggest), higher depth = smaller nodes
-    // Node size DECREASES with depth: size = spacing / (2^depth)
-    const [depthStr] = node.key.split('-')
-    const depth = parseInt(depthStr)
-    const nodeSize = spacing / Math.pow(2, depth)
+    // For depth 0 (root): node covers entire cube
+    // For depth 1: cube is divided into 2x2x2 = 8 child nodes
+    // For depth d: cube is divided into (2^d) x (2^d) x (2^d) nodes
+    //
+    // IMPORTANT: Calculate node size from cube dimensions, NOT from spacing!
+    // The spacing value from COPC header is often incorrect/corrupted for reprojected data
+    const cubeSizeX = cube[3] - cube[0]  // maxX - minX
+    const cubeSizeY = cube[4] - cube[1]  // maxY - minY
+    const cubeSizeZ = cube[5] - cube[2]  // maxZ - minZ
+
+    // Node size at this depth (divide cube by 2^depth in each dimension)
+    const nodeSizeX = cubeSizeX / Math.pow(2, depth)
+    const nodeSizeY = cubeSizeY / Math.pow(2, depth)
+    const nodeSizeZ = cubeSizeZ / Math.pow(2, depth)
 
     // Calculate node bounds in octree coordinate space
     // IMPORTANT: copc.info.cube is ALREADY in geographic coordinates!
     // Unlike point coordinates which need scaling, the octree cube bounds
     // from the COPC VLR are pre-computed geographic coordinates
     const nodeMin = [
-      cube[0] + node.x * nodeSize,
-      cube[1] + node.y * nodeSize,
-      cube[2] + node.z * nodeSize
+      cube[0] + node.x * nodeSizeX,
+      cube[1] + node.y * nodeSizeY,
+      cube[2] + node.z * nodeSizeZ
     ]
     const nodeMax = [
-      nodeMin[0] + nodeSize,
-      nodeMin[1] + nodeSize,
-      nodeMin[2] + nodeSize
+      nodeMin[0] + nodeSizeX,
+      nodeMin[1] + nodeSizeY,
+      nodeMin[2] + nodeSizeZ
     ]
 
     // Node bounds are ALREADY in geographic coordinates - don't apply scale/offset!
@@ -832,9 +845,11 @@ export async function loadCOPCFileWithSpatialBounds(
     if (node.key === '0-0-0-0' || node.key === '1-0-0-0' || node.key === '1-1-0-0') {
       console.log(`[copcLoader] 🔍 DEBUG Node ${node.key}:`)
       console.log(`  cube:`, cube)
-      console.log(`  nodeSize:`, nodeSize)
-      console.log(`  nodeMin (before scale):`, nodeMin)
-      console.log(`  nodeMax (before scale):`, nodeMax)
+      console.log(`  cubeSizeX:`, cubeSizeX, 'cubeSizeY:', cubeSizeY, 'cubeSizeZ:', cubeSizeZ)
+      console.log(`  nodeSizeX:`, nodeSizeX, 'nodeSizeY:', nodeSizeY, 'nodeSizeZ:', nodeSizeZ)
+      console.log(`  node.x:`, node.x, 'node.y:', node.y, 'node.z:', node.z)
+      console.log(`  nodeMin:`, nodeMin)
+      console.log(`  nodeMax:`, nodeMax)
       console.log(`  Geographic bounds: Lon ${minLon.toFixed(2)}° to ${maxLon.toFixed(2)}°, Lat ${minLat.toFixed(2)}° to ${maxLat.toFixed(2)}°`)
       console.log(`  Intersects filter:`, intersects)
     }

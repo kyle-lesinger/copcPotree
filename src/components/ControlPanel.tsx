@@ -29,6 +29,7 @@ interface ControlPanelProps {
   // Test config controls
   onTestConfigSelect: (config: TestConfig) => void
   currentTestId?: string
+  loadingDuration: number | null
 }
 
 export default function ControlPanel({
@@ -52,7 +53,8 @@ export default function ControlPanel({
   onToggleGroundMode,
   groundCameraPosition,
   onTestConfigSelect,
-  currentTestId
+  currentTestId,
+  loadingDuration
 }: ControlPanelProps) {
   const colormaps: Colormap[] = ['viridis', 'plasma', 'turbo', 'coolwarm', 'jet', 'grayscale', 'calipso']
 
@@ -206,6 +208,38 @@ export default function ControlPanel({
           onConfigSelect={onTestConfigSelect}
           currentTestId={currentTestId}
         />
+        {/* Loading Timer Display */}
+        {currentTestId && (
+          <div className="loading-timer">
+            {loadingDuration === null ? (
+              <span className="timer-loading">⏱️ Loading...</span>
+            ) : (
+              <span className="timer-complete">✅ Loaded in {loadingDuration.toFixed(2)}s</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Data Info Section */}
+      <div className="data-info-section-inline">
+        <h4>Data Info:</h4>
+        <p className="inline-info-text">
+          <strong>Source:</strong> CALIPSO Level 1<br />
+          <strong>Date:</strong> 2023-06-30<br />
+          <strong>Format:</strong> COPC (LAZ 1.4)<br />
+          <strong>Elevation:</strong> {dataRange.elevation ? `${dataRange.elevation[0].toFixed(2)} to ${dataRange.elevation[1].toFixed(2)} km` : 'Loading...'}
+        </p>
+      </div>
+
+      {/* Controls Info Section */}
+      <div className="controls-info-section-inline">
+        <h4>Controls:</h4>
+        <ul className="controls-list">
+          <li><kbd>Left Mouse</kbd> - Rotate</li>
+          <li><kbd>Right Mouse</kbd> - Pan</li>
+          <li><kbd>Scroll</kbd> - Zoom</li>
+          <li><kbd>R</kbd> - Reset Camera</li>
+        </ul>
       </div>
     </div>
   )

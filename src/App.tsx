@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import PointCloudViewer from './components/PointCloudViewer'
 import FilterPanel from './components/FilterPanel'
 import ControlPanel from './components/ControlPanel'
-import ControlsInfo from './components/ControlsInfo'
-import DataInfo from './components/DataInfo'
 import { Colormap } from './utils/colormaps'
 import { LatLon } from './utils/aoiSelector'
 import { searchCalipsoFiles, FileSearchResult, getAvailableFileList, FileMode } from './utils/fileSearch'
@@ -120,6 +118,10 @@ function App() {
   const [activeTestConfig, setActiveTestConfig] = useState<string | undefined>(undefined)
   const [testConfigMaxDepth, setTestConfigMaxDepth] = useState<number | undefined>(undefined)
   const [testConfigMaxNodes, setTestConfigMaxNodes] = useState<number | undefined>(undefined)
+
+  // Loading timer state
+  const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
+  const [loadingDuration, setLoadingDuration] = useState<number | null>(null)
 
   const handleToggleDrawAOI = () => {
     setIsDrawingAOI(!isDrawingAOI)
@@ -305,6 +307,15 @@ function App() {
     }
   }
 
+  const handleLoadComplete = useCallback(() => {
+    if (loadingStartTime !== null) {
+      const endTime = Date.now()
+      const duration = (endTime - loadingStartTime) / 1000 // Convert to seconds
+      setLoadingDuration(duration)
+      console.log(`[App] ✅ Loading completed in ${duration.toFixed(2)} seconds`)
+    }
+  }, [loadingStartTime])
+
   const handleGroundCameraPositionSet = (lat: number, lon: number) => {
     setGroundCameraPosition({ lat, lon })
   }
@@ -324,6 +335,11 @@ function App() {
     // Small delay to ensure React processes the state update
     setTimeout(() => {
       console.log(`[App] 🔄 Loading new configuration...`)
+
+      // Start loading timer
+      setLoadingStartTime(Date.now())
+      setLoadingDuration(null)
+      console.log(`[App] ⏱️  Loading timer started`)
 
       // Update point size
       setPointSize(config.pointSize)
@@ -513,6 +529,7 @@ function App() {
         onGroundCameraPositionSet={handleGroundCameraPositionSet}
         testConfigMaxDepth={testConfigMaxDepth}
         testConfigMaxNodes={testConfigMaxNodes}
+        onLoadComplete={handleLoadComplete}
       />
 
       <FilterPanel
@@ -550,11 +567,8 @@ function App() {
         groundCameraPosition={groundCameraPosition}
         onTestConfigSelect={handleTestConfigSelect}
         currentTestId={activeTestConfig}
+        loadingDuration={loadingDuration}
       />
-
-      <DataInfo dataRange={dataRange} />
-
-      <ControlsInfo />
     </div>
   )
 }

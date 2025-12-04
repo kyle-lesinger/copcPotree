@@ -37,9 +37,10 @@ interface PointCloudViewerProps {
   onGroundCameraPositionSet?: (lat: number, lon: number) => void
   testConfigMaxDepth?: number  // Optional test configuration override
   testConfigMaxNodes?: number  // Optional test configuration override
+  onLoadComplete?: () => void  // Callback when all data is loaded and rendered
 }
 
-export default function PointCloudViewer({ files, colorMode, colormap, pointSize, viewMode, onGlobalDataRangeUpdate, onDataRangeUpdate, aoiPolygon, showScatterPlotTrigger, onAOIDataReady, onPolygonUpdate, isDrawingAOI, heightFilter, spatialBoundsFilter, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet, testConfigMaxDepth, testConfigMaxNodes }: PointCloudViewerProps) {
+export default function PointCloudViewer({ files, colorMode, colormap, pointSize, viewMode, onGlobalDataRangeUpdate, onDataRangeUpdate, aoiPolygon, showScatterPlotTrigger, onAOIDataReady, onPolygonUpdate, isDrawingAOI, heightFilter, spatialBoundsFilter, isGroundModeActive, groundCameraPosition, onGroundCameraPositionSet, testConfigMaxDepth, testConfigMaxNodes, onLoadComplete }: PointCloudViewerProps) {
   // const globeRef = useRef<GlobeViewerHandle>(null) // Removed - 2D only
   const deckMapRef = useRef<DeckGLMapViewHandle>(null)
   const pointCloudsRef = useRef<THREE.Points[]>([]) // For 2D mode only
@@ -963,6 +964,11 @@ export default function PointCloudViewer({ files, colorMode, colormap, pointSize
           totalPoints += data.positions.length / 3
         })
         setStats({ points: totalPoints, files: allData.length })
+
+        // Notify parent that loading is complete
+        if (onLoadComplete) {
+          onLoadComplete()
+        }
       })
       .catch((err) => {
         console.error('Error loading COPC files:', err)
